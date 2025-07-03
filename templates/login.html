@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Login - Chronoflow{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">Login</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" name="email" required 
+                               value="{{ email or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" name="password" required>
+                    </div>
+                    {% if needs_totp %}
+                    <div class="mb-3">
+                        <label for="totp_code" class="form-label">2FA Code</label>
+                        <input type="text" class="form-control" name="totp_code" 
+                               placeholder="Enter 6-digit code">
+                    </div>
+                    {% if show_backup %}
+                    <div class="mb-3">
+                        <label for="backup_code" class="form-label">Or use backup code</label>
+                        <input type="text" class="form-control" name="backup_code" 
+                               placeholder="Enter backup code to disable 2FA">
+                        <small class="form-text text-muted">
+                            Using a backup code will disable 2FA and require you to set it up again.
+                        </small>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <div class="mb-3">
+                        <label for="totp_code" class="form-label">2FA Code <small class="text-muted">(if enabled)</small></label>
+                        <input type="text" class="form-control" name="totp_code" 
+                               placeholder="Enter 6-digit code (optional)">
+                    </div>
+                    {% endif %}
+                    <button type="submit" class="btn btn-primary w-100">Login</button>
+                </form>
+                {% if registration_enabled %}
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('register') }}">Don't have an account? Register here</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

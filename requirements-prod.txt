@@ -1,0 +1,5 @@
+# Production requirements - includes all base requirements plus production-specific packages
+-r requirements.txt
+
+# WSGI server for production deployment
+gunicorn==21.2.0

@@ -1,0 +1,17 @@
+{
+    "flask": {
+        "secret_key": "your-secret-key-change-this-in-production",
+        "env": "development",
+        "database_folder": "user_databases"
+    },
+    "registration": {
+        "enabled": true,
+        "rate_limit": "5 per minute",
+        "require_2fa": true,
+        "message_when_disabled": "Registration is currently disabled. Please contact the administrator."
+    },
+    "security": {
+        "min_processing_time": 0.1,
+        "csrf_protection": true
+    }
+}

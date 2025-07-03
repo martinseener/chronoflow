@@ -1,0 +1,1521 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Chronoflow{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Timer Section -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Time Tracker</h5>
+                <button class="btn btn-outline-primary btn-sm" onclick="showManualEntry()">
+                    <i class="fas fa-plus"></i> Manual Entry
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <div class="timer-display" id="timerDisplay">00:00:00</div>
+                
+                <div class="mb-3">
+                    <select class="form-select" id="projectSelect">
+                        <option value="">Select Project</option>
+                    </select>
+                </div>
+                
+                <div class="timer-controls">
+                    <button class="btn btn-success btn-lg me-2" id="startBtn" onclick="startTimer()">
+                        <i class="fas fa-play"></i> Start
+                    </button>
+                    <button class="btn btn-danger btn-lg" id="stopBtn" onclick="stopTimer()" disabled>
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-outline-secondary" onclick="showProjectManager()">
+                        <i class="fas fa-cog"></i> Manage Projects
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary & History -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-3">Time History</h5>
+                <!-- Inline Filters -->
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-2">
+                        <label for="filterProject" class="form-label small text-muted mb-1">Project</label>
+                        <select class="form-select form-select-sm" id="filterProject" onchange="applyFilters()">
+                            <option value="">All Projects</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small text-muted mb-1">Billing Status</label>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" id="billingStatusDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                <span id="billingStatusText">All Entries</span>
+                            </button>
+                            <ul class="dropdown-menu" style="min-width: 160px;">
+                                <li>
+                                    <div class="form-check ms-3 me-2 py-1" onclick="event.stopPropagation();">
+                                        <input class="form-check-input" type="checkbox" id="statusPending" value="pending" onchange="updateBillingStatusFilter()">
+                                        <label class="form-check-label" for="statusPending">Pending</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="form-check ms-3 me-2 py-1" onclick="event.stopPropagation();">
+                                        <input class="form-check-input" type="checkbox" id="statusInvoiced" value="invoiced" onchange="updateBillingStatusFilter()">
+                                        <label class="form-check-label" for="statusInvoiced">Invoiced</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="form-check ms-3 me-2 py-1" onclick="event.stopPropagation();">
+                                        <input class="form-check-input" type="checkbox" id="statusUnbilled" value="unbilled" onchange="updateBillingStatusFilter()">
+                                        <label class="form-check-label" for="statusUnbilled">Unbilled</label>
+                                    </div>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item small" href="#" onclick="selectAllBillingStatus(); return false;">Select All</a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item small" href="#" onclick="clearAllBillingStatus(); return false;">Clear All</a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="filterDateFrom" class="form-label small text-muted mb-1">From Date</label>
+                        <input type="date" class="form-control form-control-sm" id="filterDateFrom" onchange="applyFilters()">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="filterDateTo" class="form-label small text-muted mb-1">To Date</label>
+                        <input type="date" class="form-control form-control-sm" id="filterDateTo" onchange="applyFilters()">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()">
+                            <i class="fas fa-times"></i> Clear All
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="d-flex gap-1 justify-content-end">
+                            <div class="dropdown">
+                                <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-download"></i> Export
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="#" onclick="exportFilteredData('csv')"><i class="fas fa-file-csv me-2"></i>CSV</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="exportFilteredData('json')"><i class="fas fa-file-code me-2"></i>JSON</a></li>
+                                </ul>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-info btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="white-space: nowrap;">
+                                    <i class="fas fa-user"></i> Export (Customer)
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="#" onclick="exportCustomerData('csv')"><i class="fas fa-file-csv me-2"></i>CSV</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="exportCustomerData('json')"><i class="fas fa-file-code me-2"></i>JSON</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                
+                <!-- Summary -->
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Total Hours</h6>
+                            <span class="h5 text-primary" id="totalHours">0.0</span>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Total Earnings</h6>
+                            <span class="h5 text-success" id="totalEarnings">€0.00</span>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Entries</h6>
+                            <span class="h5 text-info" id="totalEntries">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- History Table -->
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th class="sortable" onclick="sortTable('date')" style="cursor: pointer;">
+                                    Date <i id="date-sort-icon" class="fas fa-sort text-muted"></i>
+                                </th>
+                                <th class="sortable" onclick="sortTable('project')" style="cursor: pointer;">
+                                    Project <i id="project-sort-icon" class="fas fa-sort text-muted"></i>
+                                </th>
+                                <th>Time Period</th>
+                                <th>Description</th>
+                                <th class="sortable" onclick="sortTable('duration')" style="cursor: pointer;">
+                                    Duration <i id="duration-sort-icon" class="fas fa-sort text-muted"></i>
+                                </th>
+                                <th class="sortable" onclick="sortTable('earnings')" style="cursor: pointer;">
+                                    Earnings <i id="earnings-sort-icon" class="fas fa-sort text-muted"></i>
+                                </th>
+                                <th class="sortable" onclick="sortTable('status')" style="cursor: pointer;">
+                                    Status <i id="status-sort-icon" class="fas fa-sort text-muted"></i>
+                                </th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTable">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals -->
+<!-- Edit Entry Modal -->
+<div class="modal fade" id="editEntryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Time Entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editEntryForm">
+                    <input type="hidden" id="editEntryId">
+                    <div class="mb-3">
+                        <label for="editEntryProject" class="form-label">Project</label>
+                        <select class="form-select" id="editEntryProject" required>
+                            <option value="">Select Project</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="editEntryStartTime" class="form-label">Start Time</label>
+                                <input type="datetime-local" class="form-control" id="editEntryStartTime" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="editEntryEndTime" class="form-label">End Time</label>
+                                <input type="datetime-local" class="form-control" id="editEntryEndTime" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editEntryDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="editEntryDescription" rows="3" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveEditedEntry()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stop Timer Modal -->
+<div class="modal fade" id="stopTimerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Description</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Duration: <span id="finalDuration"></span></label>
+                </div>
+                <div class="mb-3">
+                    <label for="timeDescription" class="form-label">What did you work on?</label>
+                    <textarea class="form-control" id="timeDescription" rows="3" required></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" onclick="discardTimer()">Discard</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveTimeEntry()">Save Entry</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Manual Entry Modal -->
+<div class="modal fade" id="manualEntryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Manual Time Entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="manualEntryForm">
+                    <div class="mb-3">
+                        <label for="manualProject" class="form-label">Project</label>
+                        <select class="form-select" id="manualProject" required>
+                            <option value="">Select Project</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="manualStartTime" class="form-label">Start Time</label>
+                                <input type="datetime-local" class="form-control" id="manualStartTime" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="manualEndTime" class="form-label">End Time</label>
+                                <input type="datetime-local" class="form-control" id="manualEndTime" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="manualDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="manualDescription" rows="3" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveManualEntry()">Save Entry</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Project Manager Modal -->
+<div class="modal fade" id="projectManagerModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Manage Projects</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <button class="btn btn-success" onclick="showNewProjectForm()">
+                        <i class="fas fa-plus"></i> Add New Project
+                    </button>
+                </div>
+                
+                <!-- New Project Form -->
+                <div class="card mb-3" id="newProjectForm" style="display: none;">
+                    <div class="card-body">
+                        <h6>New Project</h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <input type="text" class="form-control" id="newProjectName" placeholder="Project Name">
+                            </div>
+                            <div class="col-md-3">
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="newProjectRate" placeholder="Hourly Rate" step="0.01" style="min-width: 80px;">
+                                    <span class="input-group-text">€/hr</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="newProjectIncrement">
+                                    <option value="minute">Per Minute</option>
+                                    <option value="15min">Per 15 Min</option>
+                                    <option value="30min">Per 30 Min</option>
+                                    <option value="hour">Per Hour</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary" onclick="createProject()">Add</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Projects List -->
+                <div id="projectsList">
+                    <!-- Projects will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Modal -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Export Data</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="exportFormat" class="form-label">Format</label>
+                    <select class="form-select" id="exportFormat">
+                        <option value="csv">CSV</option>
+                        <option value="xlsx">Excel (XLSX)</option>
+                        <option value="json">JSON</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="exportProject" class="form-label">Project</label>
+                    <select class="form-select" id="exportProject">
+                        <option value="">All Projects</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <label class="form-label">Billing Status</label>
+                        <div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="toggleAllBillingStatus(true)">Select All</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllBillingStatus(false)">Deselect All</button>
+                        </div>
+                    </div>
+                    <div class="form-check-group">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="exportPending" checked>
+                            <label class="form-check-label" for="exportPending">
+                                Pending
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="exportInvoiced" checked>
+                            <label class="form-check-label" for="exportInvoiced">
+                                Invoiced
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="exportUnbilled" checked>
+                            <label class="form-check-label" for="exportUnbilled">
+                                Unbilled
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="exportDateFrom" class="form-label">From Date</label>
+                            <input type="date" class="form-control" id="exportDateFrom">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="exportDateTo" class="form-label">To Date</label>
+                            <input type="date" class="form-control" id="exportDateTo">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="exportData()">Export</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Archive Confirmation Modal -->
+<div class="modal fade" id="archiveConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Archive Project</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to archive this project? It will no longer be available for new time entries.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="confirmArchiveBtn">Archive Project</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reactivate Confirmation Modal -->
+<div class="modal fade" id="reactivateConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Reactivate Project</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Reactivate this project? It will be available for new time entries.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmReactivateBtn">Reactivate Project</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let timerInterval;
+let startTime;
+let currentProject = null;
+let projects = [];
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadProjects();
+    loadTimeHistory();
+});
+
+// Timer Functions
+function startTimer() {
+    const projectSelect = document.getElementById('projectSelect');
+    if (!projectSelect.value) {
+        alert('Please select a project first');
+        return;
+    }
+    
+    currentProject = projectSelect.value;
+    startTime = new Date();
+    
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('projectSelect').disabled = true;
+    
+    timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+function calculateMinutes(startTime, endTime) {
+    const durationSeconds = Math.floor((endTime - startTime) / 1000);
+    const minutes = Math.ceil(durationSeconds / 60); // Round up to next minute
+    return Math.max(minutes, 1); // Ensure minimum 1 minute
+}
+
+function stopTimer() {
+    clearInterval(timerInterval);
+    
+    const endTime = new Date();
+    const duration = calculateMinutes(startTime, endTime);
+    
+    document.getElementById('finalDuration').textContent = formatDuration(duration);
+    
+    const modal = new bootstrap.Modal(document.getElementById('stopTimerModal'));
+    modal.show();
+    
+    // Keep timer state - don't reset yet
+}
+
+function discardTimer() {
+    // Discard the timer and reset everything
+    bootstrap.Modal.getInstance(document.getElementById('stopTimerModal')).hide();
+    document.getElementById('timeDescription').value = '';
+    resetTimer();
+}
+
+function resumeTimer() {
+    // Resume the timer if user cancels the modal
+    if (startTime && currentProject) {
+        timerInterval = setInterval(updateTimerDisplay, 1000);
+    }
+}
+
+function updateTimerDisplay() {
+    if (startTime) {
+        const now = new Date();
+        const elapsed = Math.floor((now - startTime) / 1000);
+        document.getElementById('timerDisplay').textContent = formatSeconds(elapsed);
+    }
+}
+
+function formatSeconds(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatDuration(minutes) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+}
+
+function resetTimer() {
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+    document.getElementById('projectSelect').disabled = false;
+    document.getElementById('timerDisplay').textContent = '00:00:00';
+    startTime = null;
+    currentProject = null;
+}
+
+function saveTimeEntry() {
+    const description = document.getElementById('timeDescription').value;
+    if (!description.trim()) {
+        alert('Please enter a description');
+        return;
+    }
+    
+    const endTime = new Date();
+    const duration = calculateMinutes(startTime, endTime);
+    
+    const data = {
+        project_id: currentProject,
+        description: description,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        duration_minutes: duration
+    };
+    
+    fetch('/api/time_entries', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        bootstrap.Modal.getInstance(document.getElementById('stopTimerModal')).hide();
+        document.getElementById('timeDescription').value = '';
+        resetTimer();
+        loadTimeHistory();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error saving time entry');
+    });
+}
+
+// Manual Entry Functions
+function showManualEntry() {
+    const modal = new bootstrap.Modal(document.getElementById('manualEntryModal'));
+    populateProjectSelect('manualProject');
+    
+    // Set default times
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    document.getElementById('manualStartTime').value = oneHourAgo.toISOString().slice(0, -8);
+    document.getElementById('manualEndTime').value = now.toISOString().slice(0, -8);
+    
+    modal.show();
+}
+
+function saveManualEntry() {
+    const form = document.getElementById('manualEntryForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    const startTime = new Date(document.getElementById('manualStartTime').value);
+    const endTime = new Date(document.getElementById('manualEndTime').value);
+    const duration = calculateMinutes(startTime, endTime);
+    
+    if (duration <= 0) {
+        alert('End time must be after start time');
+        return;
+    }
+    
+    const data = {
+        project_id: document.getElementById('manualProject').value,
+        description: document.getElementById('manualDescription').value,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        duration_minutes: duration
+    };
+    
+    fetch('/api/time_entries', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        bootstrap.Modal.getInstance(document.getElementById('manualEntryModal')).hide();
+        form.reset();
+        loadTimeHistory();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error saving manual entry');
+    });
+}
+
+// Project Management
+function loadProjects() {
+    fetch('/api/projects?include_archived=true')
+    .then(response => response.json())
+    .then(data => {
+        projects = data;
+        populateProjectSelect('projectSelect');
+        populateProjectSelect('filterProject');
+        populateProjectSelect('exportProject');
+    });
+}
+
+function populateProjectSelect(selectId) {
+    const select = document.getElementById(selectId);
+    const currentValue = select.value;
+    
+    // Clear existing options except the first one
+    while (select.children.length > 1) {
+        select.removeChild(select.lastChild);
+    }
+    
+    projects.forEach(project => {
+        // Only show active projects in timer select, but show all projects in filter and export
+        if (selectId === 'projectSelect' && project.archived) {
+            return; // Skip archived projects for timer selection
+        }
+        
+        const option = document.createElement('option');
+        option.value = project.id;
+        option.textContent = project.archived ? 
+            `${project.name} (€${project.hourly_rate}/hr) [archived]` : 
+            `${project.name} (€${project.hourly_rate}/hr)`;
+        select.appendChild(option);
+    });
+    
+    if (currentValue) {
+        select.value = currentValue;
+    }
+}
+
+function showProjectManager() {
+    loadProjectsList();
+    const modal = new bootstrap.Modal(document.getElementById('projectManagerModal'));
+    modal.show();
+}
+
+function showNewProjectForm() {
+    const form = document.getElementById('newProjectForm');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+function createProject() {
+    const name = document.getElementById('newProjectName').value;
+    const rate = parseFloat(document.getElementById('newProjectRate').value) || 0;
+    const increment = document.getElementById('newProjectIncrement').value;
+    
+    if (!name.trim()) {
+        alert('Please enter a project name');
+        return;
+    }
+    
+    fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({name: name, hourly_rate: rate, billing_increment: increment})
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('newProjectName').value = '';
+        document.getElementById('newProjectRate').value = '';
+        document.getElementById('newProjectIncrement').value = 'minute';
+        document.getElementById('newProjectForm').style.display = 'none';
+        loadProjects();
+        loadProjectsList();
+    });
+}
+
+function loadProjectsList() {
+    console.log('loadProjectsList called - fetching projects with archived');
+    fetch('/api/projects?include_archived=true')
+    .then(response => response.json())
+    .then(data => {
+        console.log('loadProjectsList received data:', data);
+        const container = document.getElementById('projectsList');
+        container.innerHTML = '';
+        
+        data.forEach(project => {
+            const projectDiv = document.createElement('div');
+            projectDiv.className = `card mb-2 ${project.archived ? 'border-warning' : ''}`;
+            const incrementLabel = {
+                'minute': 'Per Minute',
+                '15min': 'Per 15 Min',
+                '30min': 'Per 30 Min',
+                'hour': 'Per Hour'
+            }[project.billing_increment] || 'Per Minute';
+            
+            projectDiv.innerHTML = `
+                <div class="card-body">
+                    ${project.archived ? '<div class="badge bg-warning mb-2">Archived</div>' : ''}
+                    <div class="row align-items-center">
+                        <div class="col-md-3">
+                            <input type="text" class="form-control" value="${project.name}" id="project-name-${project.id}">
+                        </div>
+                        <div class="col-md-3">
+                            <div class="input-group">
+                                <input type="number" class="form-control" value="${project.hourly_rate}" step="0.01" id="project-rate-${project.id}" style="min-width: 80px;">
+                                <span class="input-group-text">€/hr</span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <select class="form-select" id="project-increment-${project.id}">
+                                <option value="minute" ${project.billing_increment === 'minute' ? 'selected' : ''}>Per Minute</option>
+                                <option value="15min" ${project.billing_increment === '15min' ? 'selected' : ''}>Per 15 Min</option>
+                                <option value="30min" ${project.billing_increment === '30min' ? 'selected' : ''}>Per 30 Min</option>
+                                <option value="hour" ${project.billing_increment === 'hour' ? 'selected' : ''}>Per Hour</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-sm btn-primary me-1" onclick="updateProject(${project.id})">
+                                <i class="fas fa-save"></i> Save
+                            </button>
+                            ${project.archived ? 
+                                `<button class="btn btn-sm btn-success me-1" onclick="unarchiveProject(${project.id})">
+                                    <i class="fas fa-undo"></i> Reactivate
+                                </button>` : 
+                                `<button class="btn btn-sm btn-warning" onclick="archiveProject(${project.id})">
+                                    <i class="fas fa-archive"></i> Archive
+                                </button>`
+                            }
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(projectDiv);
+        });
+    });
+}
+
+function updateProject(projectId) {
+    const name = document.getElementById(`project-name-${projectId}`).value;
+    const rate = parseFloat(document.getElementById(`project-rate-${projectId}`).value) || 0;
+    const increment = document.getElementById(`project-increment-${projectId}`).value;
+    
+    // Get the save button to provide visual feedback
+    const saveButton = document.querySelector(`button[onclick="updateProject(${projectId})"]`);
+    const originalText = saveButton.innerHTML;
+    saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    saveButton.disabled = true;
+    
+    fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({name: name, hourly_rate: rate, billing_increment: increment})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success !== false) {
+            // Show success feedback
+            saveButton.innerHTML = '<i class="fas fa-check"></i> Saved!';
+            saveButton.classList.remove('btn-primary');
+            saveButton.classList.add('btn-success');
+            
+            // Refresh project dropdown immediately (doesn't affect the modal)
+            loadProjects();
+            
+            // Reset button and refresh project list after 3 seconds
+            setTimeout(() => {
+                saveButton.innerHTML = originalText;
+                saveButton.classList.remove('btn-success');
+                saveButton.classList.add('btn-primary');
+                saveButton.disabled = false;
+                
+                // Refresh the project management list after showing feedback
+                loadProjectsList();
+            }, 3000);
+        } else {
+            // Show error feedback
+            saveButton.innerHTML = '<i class="fas fa-times"></i> Error';
+            saveButton.classList.remove('btn-primary');
+            saveButton.classList.add('btn-danger');
+            
+            setTimeout(() => {
+                saveButton.innerHTML = originalText;
+                saveButton.classList.remove('btn-danger');
+                saveButton.classList.add('btn-primary');
+                saveButton.disabled = false;
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        saveButton.innerHTML = '<i class="fas fa-times"></i> Error';
+        saveButton.classList.remove('btn-primary');
+        saveButton.classList.add('btn-danger');
+        
+        setTimeout(() => {
+            saveButton.innerHTML = originalText;
+            saveButton.classList.remove('btn-danger');
+            saveButton.classList.add('btn-primary');
+            saveButton.disabled = false;
+        }, 3000);
+    });
+}
+
+function unarchiveProject(projectId) {
+    console.log('unarchiveProject called with projectId:', projectId);
+    
+    // Show confirmation modal
+    const modal = new bootstrap.Modal(document.getElementById('reactivateConfirmModal'));
+    modal.show();
+    
+    // Set up the confirmation button
+    const confirmBtn = document.getElementById('confirmReactivateBtn');
+    confirmBtn.onclick = function() {
+        console.log('User confirmed reactivation');
+        modal.hide();
+        
+        fetch(`/api/projects/${projectId}/unarchive`, {
+            method: 'POST'
+        })
+        .then(response => {
+            console.log('Unarchive response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Unarchive response data:', data);
+            if (data.success) {
+                console.log('Reactivation successful, reloading projects');
+                loadProjects();
+                loadProjectsList();
+            } else {
+                alert('Failed to reactivate project');
+            }
+        })
+        .catch(error => {
+            console.error('Error reactivating project:', error);
+            alert('An error occurred while reactivating the project');
+        });
+    };
+}
+
+function archiveProject(projectId) {
+    console.log('archiveProject called with projectId:', projectId);
+    
+    // Show confirmation modal
+    const modal = new bootstrap.Modal(document.getElementById('archiveConfirmModal'));
+    modal.show();
+    
+    // Set up the confirmation button
+    const confirmBtn = document.getElementById('confirmArchiveBtn');
+    confirmBtn.onclick = function() {
+        console.log('User confirmed archiving');
+        modal.hide();
+        
+        fetch(`/api/projects/${projectId}/archive`, {
+            method: 'POST'
+        })
+        .then(response => {
+            console.log('Archive response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Archive response data:', data);
+            if (data.success) {
+                console.log('Archiving successful, reloading projects');
+                loadProjects();
+                loadProjectsList();
+            } else {
+                alert('Failed to archive project');
+            }
+        })
+        .catch(error => {
+            console.error('Error archiving project:', error);
+            alert('An error occurred while archiving the project');
+        });
+    };
+}
+
+// Data Loading and Display
+
+function loadTimeHistory() {
+    const params = new URLSearchParams();
+    
+    const projectFilter = document.getElementById('filterProject')?.value;
+    const dateFrom = document.getElementById('filterDateFrom')?.value;
+    const dateTo = document.getElementById('filterDateTo')?.value;
+    const billingStatusFilter = getSelectedBillingStatuses();
+    
+    console.log('Loading time history with filters:', {
+        project: projectFilter,
+        dateFrom,
+        dateTo,
+        billingStatuses: billingStatusFilter
+    });
+    
+    if (projectFilter) params.append('project_id', projectFilter);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (billingStatusFilter) params.append('billing_statuses', billingStatusFilter);
+    
+    // Load projects for filter - always include archived projects
+    fetch('/api/projects?include_archived=true')
+    .then(response => response.json())
+    .then(projects => {
+        const filterSelect = document.getElementById('filterProject');
+        const currentValue = filterSelect.value;
+        
+        // Update filter dropdown
+        while (filterSelect.children.length > 1) {
+            filterSelect.removeChild(filterSelect.lastChild);
+        }
+        
+        projects.forEach(project => {
+            const option = document.createElement('option');
+            option.value = project.id;
+            option.textContent = project.archived ? 
+                `${project.name} (€${project.hourly_rate}/hr) [archived]` : 
+                `${project.name} (€${project.hourly_rate}/hr)`;
+            filterSelect.appendChild(option);
+        });
+        
+        if (currentValue) {
+            filterSelect.value = currentValue;
+        }
+    });
+    
+    fetch(`/api/time_entries?${params}`)
+    .then(response => response.json())
+    .then(data => {
+        allEntries = data; // Store entries for editing
+        updateSummary(data);
+        updateHistoryTable(data);
+    });
+}
+
+function updateSummary(entries) {
+    const totalMinutes = entries.reduce((sum, entry) => sum + entry.duration_minutes, 0);
+    const totalEarnings = entries.reduce((sum, entry) => sum + entry.earnings, 0);
+    
+    document.getElementById('totalHours').textContent = (totalMinutes / 60).toFixed(1);
+    document.getElementById('totalEarnings').textContent = `€${totalEarnings.toFixed(2)}`;
+    document.getElementById('totalEntries').textContent = entries.length;
+}
+
+function getBillingStatusBadge(status) {
+    switch(status) {
+        case 'invoiced':
+            return '<span class="badge bg-success">Invoiced</span>';
+        case 'unbilled':
+            return '<span class="badge bg-info">Unbilled</span>';
+        case 'pending':
+        default:
+            return '<span class="badge bg-warning">Pending</span>';
+    }
+}
+
+function getBillingStatusButtons(entry) {
+    const billingStatus = entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending');
+    let buttons = '';
+    
+    // Only show edit button for pending entries (invoiced and unbilled are final states)
+    if (billingStatus === 'pending') {
+        buttons += `<button class="btn btn-sm btn-outline-primary me-1" onclick="editEntry(${entry.id})" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>`;
+    }
+    
+    if (billingStatus === 'pending') {
+        // For pending entries, show "Mark as Invoiced" and "Mark as Unbilled"
+        buttons += `<button class="btn btn-sm btn-outline-success me-1" onclick="setBillingStatus(${entry.id}, 'invoiced')" title="Mark as Invoiced">
+                        <i class="fas fa-check"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-info me-1" onclick="setBillingStatus(${entry.id}, 'unbilled')" title="Mark as Unbilled">
+                        <i class="fas fa-gift"></i>
+                    </button>`;
+    } else if (billingStatus === 'invoiced' || billingStatus === 'unbilled') {
+        // For invoiced or unbilled entries, only show "Mark as Pending"
+        buttons += `<button class="btn btn-sm btn-outline-warning me-1" onclick="setBillingStatus(${entry.id}, 'pending')" title="Mark as Pending">
+                        <i class="fas fa-clock"></i>
+                    </button>`;
+    }
+    
+    return buttons;
+}
+
+function sortTable(column) {
+    if (!allEntries.length) return;
+    
+    // Determine sort direction
+    if (currentSort.column === column) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.column = column;
+        currentSort.direction = 'asc';
+    }
+    
+    // Sort the entries
+    const sortedEntries = [...allEntries].sort((a, b) => {
+        let aValue, bValue;
+        
+        switch (column) {
+            case 'date':
+                aValue = new Date(a.start_time);
+                bValue = new Date(b.start_time);
+                break;
+            case 'project':
+                aValue = (a.project_name || '').toLowerCase();
+                bValue = (b.project_name || '').toLowerCase();
+                break;
+            case 'duration':
+                aValue = a.duration_minutes;
+                bValue = b.duration_minutes;
+                break;
+            case 'earnings':
+                aValue = a.earnings;
+                bValue = b.earnings;
+                break;
+            case 'status':
+                aValue = a.billing_status || (a.invoiced ? 'invoiced' : 'pending');
+                bValue = b.billing_status || (b.invoiced ? 'invoiced' : 'pending');
+                break;
+            default:
+                return 0;
+        }
+        
+        let comparison = 0;
+        if (aValue < bValue) {
+            comparison = -1;
+        } else if (aValue > bValue) {
+            comparison = 1;
+        }
+        
+        return currentSort.direction === 'desc' ? comparison * -1 : comparison;
+    });
+    
+    // Update sort icons
+    updateSortIcons(column, currentSort.direction);
+    
+    // Update the table with sorted data
+    updateHistoryTable(sortedEntries);
+}
+
+function updateSortIcons(activeColumn, direction) {
+    const columns = ['date', 'project', 'duration', 'earnings', 'status'];
+    
+    columns.forEach(col => {
+        const icon = document.getElementById(`${col}-sort-icon`);
+        if (col === activeColumn) {
+            icon.className = direction === 'asc' ? 'fas fa-sort-up text-primary' : 'fas fa-sort-down text-primary';
+        } else {
+            icon.className = 'fas fa-sort text-muted';
+        }
+    });
+}
+
+function updateHistoryTable(entries) {
+    const tbody = document.getElementById('historyTable');
+    tbody.innerHTML = '';
+    
+    entries.forEach(entry => {
+        const row = document.createElement('tr');
+        const startDate = new Date(entry.start_time);
+        const startTime = new Date(entry.start_time);
+        const endTime = new Date(entry.end_time);
+        
+        // Add visual indication for different billing statuses
+        const billingStatus = entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending');
+        if (billingStatus === 'invoiced') {
+            row.classList.add('table-success');
+        } else if (billingStatus === 'unbilled') {
+            row.classList.add('table-info');
+        }
+        
+        row.innerHTML = `
+            <td>${startDate.toLocaleDateString()}</td>
+            <td>${entry.project_name || 'Unknown'}</td>
+            <td>${startTime.toLocaleTimeString()} - ${endTime.toLocaleTimeString()}</td>
+            <td>${entry.description}</td>
+            <td>${formatDuration(entry.duration_minutes)}</td>
+            <td class="text-success">€${entry.earnings.toFixed(2)}</td>
+            <td>
+                ${getBillingStatusBadge(entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending'))}
+            </td>
+            <td>
+                ${getBillingStatusButtons(entry)}
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteEntry(${entry.id})" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// Filter Functions
+function applyFilters() {
+    loadTimeHistory();
+}
+
+function clearFilters() {
+    document.getElementById('filterProject').value = '';
+    document.getElementById('filterDateFrom').value = '';
+    document.getElementById('filterDateTo').value = '';
+    
+    // Clear billing status checkboxes
+    document.getElementById('statusPending').checked = false;
+    document.getElementById('statusInvoiced').checked = false;
+    document.getElementById('statusUnbilled').checked = false;
+    updateBillingStatusFilter();
+    
+    loadTimeHistory();
+}
+
+// Billing Status Multi-Select Functions
+function updateBillingStatusFilter() {
+    const pending = document.getElementById('statusPending').checked;
+    const invoiced = document.getElementById('statusInvoiced').checked;
+    const unbilled = document.getElementById('statusUnbilled').checked;
+    
+    console.log('Billing status filter update:', { pending, invoiced, unbilled });
+    
+    const selectedStatuses = [];
+    if (pending) selectedStatuses.push('Pending');
+    if (invoiced) selectedStatuses.push('Invoiced');
+    if (unbilled) selectedStatuses.push('Unbilled');
+    
+    const buttonText = document.getElementById('billingStatusText');
+    if (selectedStatuses.length === 0) {
+        buttonText.textContent = 'All Entries';
+    } else if (selectedStatuses.length === 3) {
+        buttonText.textContent = 'All Entries';
+    } else {
+        buttonText.textContent = selectedStatuses.join(', ');
+    }
+    
+    const selectedBillingStatuses = getSelectedBillingStatuses();
+    console.log('Selected billing statuses for filtering:', selectedBillingStatuses);
+    
+    applyFilters();
+}
+
+function selectAllBillingStatus() {
+    document.getElementById('statusPending').checked = true;
+    document.getElementById('statusInvoiced').checked = true;
+    document.getElementById('statusUnbilled').checked = true;
+    updateBillingStatusFilter();
+}
+
+function clearAllBillingStatus() {
+    document.getElementById('statusPending').checked = false;
+    document.getElementById('statusInvoiced').checked = false;
+    document.getElementById('statusUnbilled').checked = false;
+    updateBillingStatusFilter();
+}
+
+function getSelectedBillingStatuses() {
+    const pending = document.getElementById('statusPending').checked;
+    const invoiced = document.getElementById('statusInvoiced').checked;
+    const unbilled = document.getElementById('statusUnbilled').checked;
+    
+    const statuses = [];
+    if (pending) statuses.push('pending');
+    if (invoiced) statuses.push('invoiced');
+    if (unbilled) statuses.push('unbilled');
+    
+    // If none selected, return all statuses (equivalent to no filter)
+    if (statuses.length === 0) {
+        return 'pending,invoiced,unbilled';
+    }
+    
+    return statuses.join(',');
+}
+
+// Enhanced Export Functions
+function exportFilteredData(format) {
+    const params = new URLSearchParams();
+    params.append('format', format);
+    
+    // Use the same filter parameters as the current view
+    const projectFilter = document.getElementById('filterProject')?.value;
+    const dateFrom = document.getElementById('filterDateFrom')?.value;
+    const dateTo = document.getElementById('filterDateTo')?.value;
+    const billingStatusFilter = getSelectedBillingStatuses();
+    
+    if (projectFilter) params.append('project_id', projectFilter);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (billingStatusFilter) params.append('billing_statuses', billingStatusFilter);
+    
+    window.location.href = `/api/export?${params}`;
+}
+
+function exportCustomerData(format) {
+    const params = new URLSearchParams();
+    params.append('format', format);
+    params.append('customer_export', 'true'); // Flag for customer-specific export
+    
+    // Use the same filter parameters as the current view
+    const projectFilter = document.getElementById('filterProject')?.value;
+    const dateFrom = document.getElementById('filterDateFrom')?.value;
+    const dateTo = document.getElementById('filterDateTo')?.value;
+    const billingStatusFilter = getSelectedBillingStatuses();
+    
+    if (projectFilter) params.append('project_id', projectFilter);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (billingStatusFilter) params.append('billing_statuses', billingStatusFilter);
+    
+    window.location.href = `/api/export?${params}`;
+}
+
+// Add event listener for modal close to resume timer
+document.addEventListener('DOMContentLoaded', function() {
+    loadProjects();
+    loadTimeHistory();
+    
+    // Resume timer when stop modal is dismissed without saving
+    const stopModal = document.getElementById('stopTimerModal');
+    stopModal.addEventListener('hidden.bs.modal', function() {
+        // Only resume if timer was running and entry wasn't saved
+        if (startTime && currentProject && document.getElementById('startBtn').disabled) {
+            resumeTimer();
+        }
+    });
+});
+
+// Export Functions
+function showExportModal() {
+    populateProjectSelect('exportProject');
+    const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+    modal.show();
+}
+
+function toggleAllBillingStatus(selectAll) {
+    document.getElementById('exportPending').checked = selectAll;
+    document.getElementById('exportInvoiced').checked = selectAll;
+    document.getElementById('exportUnbilled').checked = selectAll;
+}
+
+function exportData() {
+    const params = new URLSearchParams();
+    params.append('format', document.getElementById('exportFormat').value);
+    
+    const projectId = document.getElementById('exportProject').value;
+    const dateFrom = document.getElementById('exportDateFrom').value;
+    const dateTo = document.getElementById('exportDateTo').value;
+    
+    // Collect billing status selections
+    const billingStatuses = [];
+    if (document.getElementById('exportPending').checked) billingStatuses.push('pending');
+    if (document.getElementById('exportInvoiced').checked) billingStatuses.push('invoiced');
+    if (document.getElementById('exportUnbilled').checked) billingStatuses.push('unbilled');
+    
+    // Validate that at least one billing status is selected
+    if (billingStatuses.length === 0) {
+        alert('Please select at least one billing status to export.');
+        return;
+    }
+    
+    if (projectId) params.append('project_id', projectId);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (billingStatuses.length > 0) params.append('billing_statuses', billingStatuses.join(','));
+    
+    window.location.href = `/api/export?${params}`;
+    bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
+}
+
+// Entry Management Functions
+let allEntries = []; // Store all entries for editing
+let currentSort = { column: null, direction: 'asc' }; // Track current sort state
+
+function editEntry(entryId) {
+    // Find the entry in our stored data
+    const entry = allEntries.find(e => e.id === entryId);
+    if (!entry) {
+        alert('Entry not found. Please refresh the page and try again.');
+        return;
+    }
+    
+    // Check if entry is in a final state (invoiced or unbilled)
+    const billingStatus = entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending');
+    if (billingStatus === 'invoiced') {
+        alert('Cannot edit invoiced entries.');
+        return;
+    }
+    if (billingStatus === 'unbilled') {
+        alert('Cannot edit unbilled entries.');
+        return;
+    }
+    
+    // Populate the edit form
+    document.getElementById('editEntryId').value = entry.id;
+    
+    // Load projects first, then set the selected project
+    fetch('/api/projects?include_archived=true')
+    .then(response => response.json())
+    .then(projects => {
+        const projectSelect = document.getElementById('editEntryProject');
+        
+        // Clear existing options except the first one
+        while (projectSelect.children.length > 1) {
+            projectSelect.removeChild(projectSelect.lastChild);
+        }
+        
+        // Add all projects (including archived ones for editing)
+        projects.forEach(project => {
+            const option = document.createElement('option');
+            option.value = project.id;
+            option.textContent = project.archived ? 
+                `${project.name} (€${project.hourly_rate}/hr) [Archived]` : 
+                `${project.name} (€${project.hourly_rate}/hr)`;
+            projectSelect.appendChild(option);
+        });
+        
+        // Set the selected project
+        projectSelect.value = entry.project_id;
+        
+        // Convert ISO strings to local datetime format
+        const startTime = new Date(entry.start_time);
+        const endTime = new Date(entry.end_time);
+        
+        // Format for datetime-local input (YYYY-MM-DDTHH:MM)
+        document.getElementById('editEntryStartTime').value = startTime.toISOString().slice(0, 16);
+        document.getElementById('editEntryEndTime').value = endTime.toISOString().slice(0, 16);
+        document.getElementById('editEntryDescription').value = entry.description;
+        
+        // Show the modal
+        const modal = new bootstrap.Modal(document.getElementById('editEntryModal'));
+        modal.show();
+    })
+    .catch(error => {
+        console.error('Error loading projects:', error);
+        alert('Error loading projects for editing');
+    });
+}
+
+function saveEditedEntry() {
+    const form = document.getElementById('editEntryForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    const entryId = document.getElementById('editEntryId').value;
+    const startTime = new Date(document.getElementById('editEntryStartTime').value);
+    const endTime = new Date(document.getElementById('editEntryEndTime').value);
+    const duration = calculateMinutes(startTime, endTime);
+    
+    if (duration <= 0) {
+        alert('End time must be after start time');
+        return;
+    }
+    
+    const data = {
+        project_id: document.getElementById('editEntryProject').value,
+        description: document.getElementById('editEntryDescription').value,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        duration_minutes: duration
+    };
+    
+    fetch(`/api/time_entries/${entryId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editEntryModal')).hide();
+            form.reset();
+            loadTimeHistory();
+        } else {
+            alert('Error updating entry: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating entry');
+    });
+}
+
+function deleteEntry(entryId) {
+    if (!confirm('Are you sure you want to delete this time entry? This action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/api/time_entries/${entryId}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadTimeHistory();
+        } else {
+            alert('Error deleting entry: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error deleting entry');
+    });
+}
+
+function setBillingStatus(entryId, status) {
+    fetch(`/api/time_entries/${entryId}/billing_status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: status })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadTimeHistory();
+        } else {
+            alert('Error updating billing status: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating billing status');
+    });
+}
+
+function toggleInvoiceStatus(entryId) {
+    // Legacy function - now uses new billing status API
+    fetch(`/api/time_entries/${entryId}/invoice`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadTimeHistory();
+        } else {
+            alert('Error updating invoice status: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating invoice status');
+    });
+}
+
+</script>
+{% endblock %}

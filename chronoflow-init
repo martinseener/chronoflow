@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# chronoflow        ChronoFlow Time Tracking Application
+#
+# chkconfig: 35 80 20
+# description: ChronoFlow Time Tracking Application
+#
+
+. /lib/lsb/init-functions
+
+USER="www-data"
+DAEMON="chronoflow"
+ROOT_DIR="/opt/chronoflow"
+
+SERVER="$ROOT_DIR/venv/bin/gunicorn"
+LOCK_FILE="/var/lock/subsys/chronoflow"
+
+do_start() {
+    if [ -z "$SUDO_USER" ] ; then
+        SUDO_USER="$USER"
+    fi
+    if [ ! -d "$ROOT_DIR" ] ; then
+        echo "Application directory not found: $ROOT_DIR"
+        exit 1
+    fi
+    if [ ! -f "$SERVER" ] ; then
+        echo "Gunicorn not found: $SERVER"
+        exit 1
+    fi
+    start-stop-daemon --start --quiet --pidfile /var/run/$DAEMON.pid \
+        --chuid $USER --background --make-pidfile \
+        --chdir $ROOT_DIR \
+        --exec $SERVER -- \
+        --workers 4 \
+        --bind 0.0.0.0:8000 \
+        --env FLASK_ENV=production \
+        --env FLASK_SECRET_KEY="${FLASK_SECRET_KEY:-change-this-secret-key}" \
+        app:app
+    echo "chronoflow started"
+    touch $LOCK_FILE
+}
+do_stop() {
+    start-stop-daemon --stop --quiet --pidfile /var/run/$DAEMON.pid
+    echo "chronoflow stopped"
+    rm -f $LOCK_FILE
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    stop)
+        do_stop
+        ;;
+    restart)
+        do_stop
+        do_start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
