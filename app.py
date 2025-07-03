@@ -66,7 +66,7 @@ limiter.init_app(app)
 # Ensure database folder exists
 os.makedirs(app.config['DATABASE_FOLDER'], exist_ok=True)
 
-# Main user database for authentication
+# Initialize main database on app startup
 def init_main_db():
     conn = sqlite3.connect('main.db')
     cursor = conn.cursor()
@@ -93,6 +93,10 @@ def init_main_db():
     
     conn.commit()
     conn.close()
+
+# Initialize database on import
+init_main_db()
+
 
 # Individual user database setup
 def init_user_db(user_id):
