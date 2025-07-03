@@ -2,4 +2,4 @@
 -r requirements.txt
 
 # WSGI server for production deployment
-gunicorn==21.2.0
+gunicorn==23.0.0
