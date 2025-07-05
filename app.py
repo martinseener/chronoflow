@@ -185,6 +185,14 @@ def ensure_user_db_migrated(user_id):
         conn.commit()
         conn.close()
 
+def get_version():
+    """Read version from VERSION file"""
+    try:
+        with open('VERSION', 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return 'unknown'
+
 def generate_backup_codes(count=10):
     """Generate backup codes for 2FA recovery"""
     codes = []
@@ -479,7 +487,7 @@ def verify_2fa():
 def dashboard():
     # Ensure user database is migrated on dashboard load
     ensure_user_db_migrated(session['user_id'])
-    return render_template('dashboard.html')
+    return render_template('dashboard.html', version=get_version())
 
 @app.route('/api/2fa_status')
 @login_required

@@ -130,19 +130,31 @@
                 
                 <!-- Summary -->
                 <div class="row mb-3">
-                    <div class="col-md-4">
+                    <div class="col-md-2">
                         <div class="text-center">
                             <h6>Total Hours</h6>
                             <span class="h5 text-primary" id="totalHours">0.0</span>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-2">
                         <div class="text-center">
                             <h6>Total Earnings</h6>
                             <span class="h5 text-success" id="totalEarnings">€0.00</span>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-2">
+                        <div class="text-center">
+                            <h6>Open Earnings</h6>
+                            <span class="h5 text-warning" id="pendingEarnings">€0.00</span>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="text-center">
+                            <h6>Invoiced Earnings</h6>
+                            <span class="h5 text-success" id="invoicedEarnings">€0.00</span>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
                         <div class="text-center">
                             <h6>Entries</h6>
                             <span class="h5 text-info" id="totalEntries">0</span>
@@ -465,6 +477,11 @@
         </div>
     </div>
 </div>
+
+<!-- Footer -->
+<footer class="text-center mt-5 py-3 border-top">
+    <small class="text-muted">Chronoflow {{ version }}</small>
+</footer>
 
 {% endblock %}
 
@@ -1008,8 +1025,21 @@ function updateSummary(entries) {
     const totalMinutes = entries.reduce((sum, entry) => sum + entry.duration_minutes, 0);
     const totalEarnings = entries.reduce((sum, entry) => sum + entry.earnings, 0);
     
+    // Calculate separate earnings by billing status
+    const pendingEarnings = entries.reduce((sum, entry) => {
+        const billingStatus = entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending');
+        return billingStatus === 'pending' ? sum + entry.earnings : sum;
+    }, 0);
+    
+    const invoicedEarnings = entries.reduce((sum, entry) => {
+        const billingStatus = entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending');
+        return billingStatus === 'invoiced' ? sum + entry.earnings : sum;
+    }, 0);
+    
     document.getElementById('totalHours').textContent = (totalMinutes / 60).toFixed(1);
     document.getElementById('totalEarnings').textContent = `€${totalEarnings.toFixed(2)}`;
+    document.getElementById('pendingEarnings').textContent = `€${pendingEarnings.toFixed(2)}`;
+    document.getElementById('invoicedEarnings').textContent = `€${invoicedEarnings.toFixed(2)}`;
     document.getElementById('totalEntries').textContent = entries.length;
 }
 
