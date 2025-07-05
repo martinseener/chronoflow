@@ -17,9 +17,16 @@
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">Password</label>
-                        <input type="password" class="form-control" name="password" required>
+                        <input type="password" class="form-control" name="password" id="password" required>
                     </div>
-                    <button type="submit" class="btn btn-success w-100">Register</button>
+                    <div class="mb-3">
+                        <label for="confirm_password" class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" name="confirm_password" id="confirm_password" required>
+                        <div class="invalid-feedback" id="password-mismatch">
+                            Passwords do not match.
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100" id="register-btn">Register</button>
                 </form>
                 <div class="text-center mt-3">
                     <a href="{{ url_for('login') }}">Already have an account? Login here</a>
@@ -28,4 +35,41 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const passwordInput = document.getElementById('password');
+    const confirmPasswordInput = document.getElementById('confirm_password');
+    const registerBtn = document.getElementById('register-btn');
+    const passwordMismatch = document.getElementById('password-mismatch');
+    
+    function validatePasswords() {
+        const password = passwordInput.value;
+        const confirmPassword = confirmPasswordInput.value;
+        
+        if (confirmPassword && password !== confirmPassword) {
+            confirmPasswordInput.classList.add('is-invalid');
+            passwordMismatch.style.display = 'block';
+            registerBtn.disabled = true;
+            return false;
+        } else {
+            confirmPasswordInput.classList.remove('is-invalid');
+            passwordMismatch.style.display = 'none';
+            registerBtn.disabled = false;
+            return true;
+        }
+    }
+    
+    // Validate on input
+    confirmPasswordInput.addEventListener('input', validatePasswords);
+    passwordInput.addEventListener('input', validatePasswords);
+    
+    // Validate on form submission
+    document.querySelector('form').addEventListener('submit', function(e) {
+        if (!validatePasswords()) {
+            e.preventDefault();
+        }
+    });
+});
+</script>
 {% endblock %}

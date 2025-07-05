@@ -240,6 +240,12 @@ def register():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
+        confirm_password = request.form['confirm_password']
+        
+        # Check if passwords match
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return render_template('register.html')
         
         # Simulate processing time to prevent timing attacks
         start_time = time.time()
