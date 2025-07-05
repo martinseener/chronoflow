@@ -882,23 +882,40 @@ def set_billing_status(entry_id):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # Check if entry exists
-    cursor.execute('SELECT id FROM time_entries WHERE id = ?', (entry_id,))
+    # Get time entry details including project info for earnings calculation
+    cursor.execute('''
+        SELECT te.id, te.project_id, te.duration_minutes, p.hourly_rate, p.billing_increment 
+        FROM time_entries te 
+        JOIN projects p ON te.project_id = p.id 
+        WHERE te.id = ?
+    ''', (entry_id,))
     result = cursor.fetchone()
     
     if not result:
         conn.close()
         return jsonify({'error': 'Time entry not found'}), 404
     
-    # Update billing status and keep invoiced field in sync for backward compatibility
+    entry_id_db, project_id, duration_minutes, hourly_rate, billing_increment = result
+    billing_increment = billing_increment if billing_increment else 'minute'
+    
+    # Calculate earnings based on billing status
+    if new_status == 'unbilled':
+        # Unbilled entries have zero earnings
+        earnings = 0.0
+    else:
+        # Pending and invoiced entries use normal hourly rate calculation
+        billable_minutes = calculate_billable_minutes(duration_minutes, billing_increment)
+        earnings = (billable_minutes / 60.0) * hourly_rate
+    
+    # Update billing status, invoiced field, and earnings
     invoiced_value = 1 if new_status == 'invoiced' else 0
-    cursor.execute('UPDATE time_entries SET billing_status = ?, invoiced = ? WHERE id = ?', 
-                   (new_status, invoiced_value, entry_id))
+    cursor.execute('UPDATE time_entries SET billing_status = ?, invoiced = ?, earnings = ? WHERE id = ?', 
+                   (new_status, invoiced_value, earnings, entry_id))
     
     conn.commit()
     conn.close()
     
-    return jsonify({'success': True, 'billing_status': new_status, 'invoiced': bool(invoiced_value)})
+    return jsonify({'success': True, 'billing_status': new_status, 'invoiced': bool(invoiced_value), 'earnings': earnings})
 
 @app.route('/api/time_entries/<int:entry_id>/invoice', methods=['POST'])
 @login_required
