@@ -6,7 +6,7 @@ import pyotp
 import qrcode
 import io
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import csv
 from functools import wraps
@@ -962,8 +962,19 @@ def export_to_csv(data):
     
     # Write data
     for entry in data:
-        start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00')) if entry['start_time'] else None
-        end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00')) if entry['end_time'] else None
+        # Parse UTC times and convert to local timezone
+        start_time = None
+        end_time = None
+        
+        if entry['start_time']:
+            start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00'))
+            # Convert from UTC to local timezone
+            start_time = start_time.replace(tzinfo=timezone.utc).astimezone()
+            
+        if entry['end_time']:
+            end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00'))
+            # Convert from UTC to local timezone
+            end_time = end_time.replace(tzinfo=timezone.utc).astimezone()
         
         writer.writerow([
             start_time.strftime('%Y-%m-%d') if start_time else '',
@@ -981,7 +992,26 @@ def export_to_csv(data):
 
 def export_to_json(data):
     """Export data to JSON format"""
-    return json.dumps(data, indent=2, default=str)
+    # Convert UTC times to local timezone in the data
+    converted_data = []
+    for entry in data:
+        converted_entry = entry.copy()
+        
+        # Convert start_time from UTC to local timezone
+        if entry.get('start_time'):
+            start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00'))
+            start_time = start_time.replace(tzinfo=timezone.utc).astimezone()
+            converted_entry['start_time'] = start_time.isoformat()
+            
+        # Convert end_time from UTC to local timezone
+        if entry.get('end_time'):
+            end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00'))
+            end_time = end_time.replace(tzinfo=timezone.utc).astimezone()
+            converted_entry['end_time'] = end_time.isoformat()
+            
+        converted_data.append(converted_entry)
+    
+    return json.dumps(converted_data, indent=2, default=str)
 
 
 def export_customer_to_csv(data):
@@ -994,8 +1024,19 @@ def export_customer_to_csv(data):
     
     # Write data
     for entry in data:
-        start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00')) if entry['start_time'] else None
-        end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00')) if entry['end_time'] else None
+        # Parse UTC times and convert to local timezone
+        start_time = None
+        end_time = None
+        
+        if entry['start_time']:
+            start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00'))
+            # Convert from UTC to local timezone
+            start_time = start_time.replace(tzinfo=timezone.utc).astimezone()
+            
+        if entry['end_time']:
+            end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00'))
+            # Convert from UTC to local timezone
+            end_time = end_time.replace(tzinfo=timezone.utc).astimezone()
         
         # Format time period
         time_period = ''
@@ -1027,8 +1068,19 @@ def export_customer_to_json(data):
     customer_data = []
     
     for entry in data:
-        start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00')) if entry['start_time'] else None
-        end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00')) if entry['end_time'] else None
+        # Parse UTC times and convert to local timezone
+        start_time = None
+        end_time = None
+        
+        if entry['start_time']:
+            start_time = datetime.fromisoformat(entry['start_time'].replace('Z', '+00:00'))
+            # Convert from UTC to local timezone
+            start_time = start_time.replace(tzinfo=timezone.utc).astimezone()
+            
+        if entry['end_time']:
+            end_time = datetime.fromisoformat(entry['end_time'].replace('Z', '+00:00'))
+            # Convert from UTC to local timezone
+            end_time = end_time.replace(tzinfo=timezone.utc).astimezone()
         
         # Format time period
         time_period = ''
