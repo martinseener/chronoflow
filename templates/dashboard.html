@@ -1421,9 +1421,18 @@ function editEntry(entryId) {
         const startTime = new Date(entry.start_time);
         const endTime = new Date(entry.end_time);
         
-        // Format for datetime-local input (YYYY-MM-DDTHH:MM)
-        document.getElementById('editEntryStartTime').value = startTime.toISOString().slice(0, 16);
-        document.getElementById('editEntryEndTime').value = endTime.toISOString().slice(0, 16);
+        // Format for datetime-local input (YYYY-MM-DDTHH:MM) using local time
+        function formatDateTimeLocal(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+        
+        document.getElementById('editEntryStartTime').value = formatDateTimeLocal(startTime);
+        document.getElementById('editEntryEndTime').value = formatDateTimeLocal(endTime);
         document.getElementById('editEntryDescription').value = entry.description;
         
         // Show the modal
