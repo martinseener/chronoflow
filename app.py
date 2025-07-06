@@ -789,7 +789,7 @@ def create_time_entry():
     billable_minutes = calculate_billable_minutes(raw_minutes, billing_increment)
     
     # Calculate earnings
-    earnings = (billable_minutes / 60.0) * hourly_rate
+    earnings = round((billable_minutes / 60.0) * hourly_rate, 2)
     
     cursor.execute('''
         INSERT INTO time_entries (project_id, description, start_time, end_time, duration_minutes, earnings, billing_status)
@@ -863,7 +863,7 @@ def update_time_entry(entry_id):
     billable_minutes = calculate_billable_minutes(raw_minutes, billing_increment)
     
     # Calculate earnings
-    earnings = (billable_minutes / 60.0) * hourly_rate
+    earnings = round((billable_minutes / 60.0) * hourly_rate, 2)
     
     # Update the time entry
     cursor.execute('''
@@ -919,7 +919,7 @@ def set_billing_status(entry_id):
     else:
         # Pending and invoiced entries use normal hourly rate calculation
         billable_minutes = calculate_billable_minutes(duration_minutes, billing_increment)
-        earnings = (billable_minutes / 60.0) * hourly_rate
+        earnings = round((billable_minutes / 60.0) * hourly_rate, 2)
     
     # Update billing status, invoiced field, and earnings
     invoiced_value = 1 if new_status == 'invoiced' else 0
