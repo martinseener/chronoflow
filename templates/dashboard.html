@@ -2,6 +2,19 @@
 {% block title %}Dashboard - Chronoflow{% endblock %}
 
 {% block content %}
+<!-- Security Warning for Default Secret Key -->
+{% if show_secret_key_warning %}
+<div class="row">
+    <div class="col-12">
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>PRODUCTION WARNING:</strong> Default secret key detected. Change your secret key in config.json for production use.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Timer Section -->
     <div class="col-12">

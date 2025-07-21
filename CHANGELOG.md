@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2025-07-21
+
+### Security
+- Enhanced session security management
+  - Added configurable session timeout with default 24-hour expiration
+  - Implemented secure cookie flags (HTTPOnly, Secure, SameSite) with configuration options
+  - Added automatic session invalidation on password changes with user notification
+  - Session timeout checks integrated into login_required decorator
+- Implemented comprehensive per-user rate limiting for sensitive operations
+  - Enhanced rate limiting for 2FA operations (setup, verify, disable) - 10 per hour per user
+  - Password change rate limiting - 3 attempts per hour per user
+  - Data export rate limiting - 20 requests per hour per user  
+  - Data import rate limiting - 5 requests per hour per user
+  - User-based rate limiting keys prevent IP-based bypass attacks
+
+## [1.2.3] - 2025-07-21
+
+### Security
+- Enhanced file upload security with comprehensive validation pipeline
+  - Added file size limits (10MB maximum)
+  - Implemented MIME type validation for uploads
+  - Added JSON structure validation for import files
+  - Enhanced malicious file detection and prevention
+- Fixed information disclosure vulnerabilities
+  - Implemented generic error responses for production
+  - Added detailed server-side error logging while hiding sensitive information from users
+  - Generic error handlers prevent stack trace exposure
+- Added production secret key warning system
+  - Dashboard shows security warning when default secret key is used in production
+  - Context-aware warning (only appears when debug=false)
+  - Helps prevent accidental production deployment with weak keys
+
 ## [1.2.2] - 2025-07-21
 
 ### Security

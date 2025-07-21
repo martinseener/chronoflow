@@ -15,6 +15,10 @@ import secrets
 import string
 import time
 import re
+import logging
+import logging.handlers
+import platform
+import traceback
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
@@ -43,10 +47,106 @@ def load_config():
             "security": {
                 "min_processing_time": 0.1,
                 "csrf_protection": True
+            },
+            "session": {
+                "timeout_hours": 24,
+                "secure_cookies": True,
+                "invalidate_on_password_change": True
+            },
+            "rate_limiting": {
+                "enhanced_enabled": True,
+                "2fa_attempts": "10 per hour",
+                "password_change": "3 per hour",
+                "export_requests": "20 per hour",
+                "import_requests": "5 per hour"
             }
         }
 
 config = load_config()
+
+# Logging configuration functions
+def create_log_handler(handler_config):
+    """Create logging handler based on configuration"""
+    handler_type = handler_config.get('type', 'file')
+    
+    if handler_type == 'file':
+        log_path = handler_config['path']
+        
+        # Create directory if create_dir is True
+        if handler_config.get('create_dir', False):
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        
+        handler = logging.FileHandler(log_path)
+        
+    elif handler_type == 'syslog' and platform.system() != 'Windows':
+        facility = getattr(logging.handlers.SysLogHandler, 
+                          f"LOG_{handler_config.get('facility', 'daemon').upper()}")
+        
+        handler = logging.handlers.SysLogHandler(
+            address='/dev/log',  # Linux/Unix
+            facility=facility
+        )
+        
+        # Add ident prefix for syslog
+        ident = handler_config.get('ident', 'chronoflow')
+        original_emit = handler.emit
+        def emit_with_ident(record):
+            record.name = f"{ident}[{os.getpid()}]"
+            original_emit(record)
+        handler.emit = emit_with_ident
+        
+    elif handler_type == 'console':
+        handler = logging.StreamHandler()
+        
+    else:
+        return None
+    
+    # Set handler level
+    level = handler_config.get('level', 'INFO')
+    handler.setLevel(getattr(logging, level))
+    
+    return handler
+
+def setup_logging():
+    """Setup logging based on configuration"""
+    logging_config = config.get('logging', {})
+    
+    if not logging_config.get('enabled', True):
+        return
+    
+    logger = logging.getLogger('chronoflow')
+    logger.setLevel(getattr(logging, logging_config.get('level', 'INFO')))
+    
+    # Clear existing handlers
+    logger.handlers.clear()
+    
+    # Add configured handlers
+    for handler_config in logging_config.get('handlers', []):
+        handler = create_log_handler(handler_config)
+        if handler:
+            formatter = logging.Formatter(
+                logging_config.get('format', 
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+
+def log_error_with_context(error, endpoint, user_id=None, additional_info=None):
+    """Log error with context information"""
+    logger = logging.getLogger('chronoflow')
+    
+    error_details = {
+        'endpoint': endpoint,
+        'user_id': user_id or session.get('user_id'),
+        'error_type': type(error).__name__,
+        'error_message': str(error),
+        'additional_info': additional_info
+    }
+    
+    logger.error(f"Application Error: {json.dumps(error_details)}")
+    
+    # Log full stack trace at debug level
+    logger.debug(f"Stack trace: {traceback.format_exc()}")
 
 # Configure Flask app from config
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', config['flask']['secret_key'])
@@ -54,18 +154,67 @@ app.config['DATABASE_FOLDER'] = os.environ.get('DATABASE_FOLDER', config['flask'
 app.config['WTF_CSRF_ENABLED'] = config['security']['csrf_protection']
 app.config['WTF_CSRF_TIME_LIMIT'] = None
 
+# Configure session security
+session_config = config.get('session', {})
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=session_config.get('timeout_hours', 24))
+
+# Set secure cookie flags
+if session_config.get('secure_cookies', True):
+    app.config['SESSION_COOKIE_SECURE'] = True
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 # Initialize CSRF protection
 csrf = CSRFProtect(app)
 
-# Initialize rate limiter
+# Initialize rate limiter with user-based key function for enhanced security
+def get_user_id_or_ip():
+    """Get user ID for authenticated requests, fallback to IP for anonymous"""
+    return str(session.get('user_id', get_remote_address()))
+
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
 )
 limiter.init_app(app)
 
+# Enhanced rate limiting decorator for sensitive per-user operations
+def enhanced_rate_limit(rate_string):
+    """Enhanced rate limiter that uses user ID when available"""
+    return limiter.limit(rate_string, key_func=get_user_id_or_ip)
+
 # Ensure database folder exists
 os.makedirs(app.config['DATABASE_FOLDER'], exist_ok=True)
+
+# Initialize logging
+setup_logging()
+
+# Generic error handler for production
+@app.errorhandler(500)
+def handle_internal_error(error):
+    logger = logging.getLogger('chronoflow')
+    logger.error(f"Internal server error: {str(error)}")
+    logger.debug(f"Full traceback: {traceback.format_exc()}")
+    
+    if app.debug:
+        # In debug mode, show the actual error
+        raise error
+    else:
+        # In production, return generic error
+        return jsonify({'error': 'An internal server error occurred'}), 500
+
+@app.errorhandler(Exception)
+def handle_generic_exception(error):
+    logger = logging.getLogger('chronoflow')
+    logger.error(f"Unhandled exception: {str(error)}")
+    logger.debug(f"Full traceback: {traceback.format_exc()}")
+    
+    if app.debug:
+        # In debug mode, show the actual error
+        raise error
+    else:
+        # In production, return generic error
+        return jsonify({'error': 'An unexpected error occurred'}), 500
 
 # Input validation functions
 def validate_email(email):
@@ -155,6 +304,83 @@ def sanitize_string(value, max_length=None):
     if max_length:
         value = value[:max_length]
     return value
+
+def validate_upload_file(file):
+    """Validate uploaded file for security"""
+    if not file:
+        return False, "No file provided"
+    
+    if not file.filename:
+        return False, "No filename provided"
+    
+    # 1. File size validation (10MB max)
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)  # Reset file pointer
+    
+    if file_size > 10 * 1024 * 1024:  # 10MB
+        return False, "File too large (max 10MB)"
+    
+    if file_size == 0:
+        return False, "File is empty"
+    
+    # 2. Extension validation
+    if not file.filename.lower().endswith('.json'):
+        return False, "Only JSON files are allowed"
+    
+    # 3. MIME type validation (if provided by browser)
+    if hasattr(file, 'mimetype') and file.mimetype and file.mimetype != 'application/json':
+        # Some browsers might send 'text/plain' for .json files, so we'll be lenient
+        if file.mimetype not in ['application/json', 'text/plain', 'application/octet-stream']:
+            return False, "Invalid file type"
+    
+    return True, "Valid file"
+
+def validate_json_structure(data):
+    """Validate JSON structure for import"""
+    if not isinstance(data, dict):
+        return False, "Invalid JSON structure - must be an object"
+    
+    # Check for required top-level keys
+    if 'export_info' not in data:
+        return False, "Missing export_info section"
+    
+    if 'projects' not in data:
+        return False, "Missing projects section"
+    
+    if 'time_entries' not in data:
+        return False, "Missing time_entries section"
+    
+    # Validate export_info
+    export_info = data['export_info']
+    if not isinstance(export_info, dict):
+        return False, "Invalid export_info format"
+    
+    # Validate projects is a list
+    if not isinstance(data['projects'], list):
+        return False, "Projects must be a list"
+    
+    # Validate time_entries is a list
+    if not isinstance(data['time_entries'], list):
+        return False, "Time entries must be a list"
+    
+    # Basic structure validation for projects
+    for i, project in enumerate(data['projects']):
+        if not isinstance(project, dict):
+            return False, f"Invalid project format at index {i}"
+        if 'name' not in project:
+            return False, f"Missing project name at index {i}"
+    
+    # Basic structure validation for time entries
+    for i, entry in enumerate(data['time_entries']):
+        if not isinstance(entry, dict):
+            return False, f"Invalid time entry format at index {i}"
+        required_fields = ['project_id', 'start_time', 'end_time', 'duration_minutes']
+        for field in required_fields:
+            if field not in entry:
+                return False, f"Missing {field} in time entry at index {i}"
+    
+    return True, "Valid structure"
 
 def validate_and_sanitize_request_data(data, schema):
     """Validate and sanitize request data against schema"""
@@ -323,6 +549,22 @@ def get_version():
     except FileNotFoundError:
         return 'unknown'
 
+def is_using_default_secret_key():
+    """Check if using default secret key in non-debug mode"""
+    default_key = "your-secret-key-change-this-in-production"
+    current_key = app.secret_key
+    
+    # Get debug mode status
+    debug_from_env = os.environ.get('FLASK_DEBUG')
+    debug_from_config = config.get('flask', {}).get('debug', False)
+    
+    if debug_from_env is not None:
+        debug_mode = debug_from_env.lower() in ['true', '1', 'yes', 'on']
+    else:
+        debug_mode = bool(debug_from_config)
+    
+    return current_key == default_key and not debug_mode
+
 def generate_backup_codes(count=10):
     """Generate backup codes for 2FA recovery"""
     codes = []
@@ -346,9 +588,39 @@ def verify_backup_code(stored_codes, provided_code):
     
     return False, []
 
+def check_session_timeout():
+    """Check if session has timed out"""
+    if 'user_id' not in session:
+        return False
+    
+    session_config = config.get('session', {})
+    timeout_hours = session_config.get('timeout_hours', 24)
+    
+    # Check if session has last_activity timestamp
+    if 'last_activity' not in session:
+        session['last_activity'] = datetime.now()
+        session.permanent = True
+        return True
+    
+    # Check if session has expired
+    last_activity = datetime.fromisoformat(session['last_activity'])
+    if datetime.now() - last_activity > timedelta(hours=timeout_hours):
+        session.clear()
+        return False
+    
+    # Update last activity timestamp
+    session['last_activity'] = datetime.now().isoformat()
+    session.permanent = True
+    return True
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check session timeout first
+        if not check_session_timeout():
+            flash('Session expired. Please log in again.', 'info')
+            return redirect(url_for('login'))
+        
         if 'user_id' not in session:
             return redirect(url_for('login'))
         
@@ -544,6 +816,8 @@ def login():
             
             session['user_id'] = user[0]
             session['email'] = email
+            session['last_activity'] = datetime.now().isoformat()
+            session.permanent = True
             return redirect(url_for('dashboard'))
         else:
             conn.close()
@@ -606,6 +880,7 @@ def setup_2fa():
 
 @app.route('/verify_2fa', methods=['POST'])
 @login_required
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('2fa_attempts', '10 per hour'))
 def verify_2fa():
     totp_code = sanitize_string(request.form.get('totp_code', ''), 10)
     
@@ -643,7 +918,9 @@ def verify_2fa():
 def dashboard():
     # Ensure user database is migrated on dashboard load
     ensure_user_db_migrated(session['user_id'])
-    return render_template('dashboard.html', version=get_version())
+    return render_template('dashboard.html', 
+                         version=get_version(),
+                         show_secret_key_warning=is_using_default_secret_key())
 
 @app.route('/api/2fa_status')
 @login_required
@@ -658,6 +935,7 @@ def get_2fa_status():
 
 @app.route('/api/disable_2fa', methods=['POST'])
 @login_required
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('2fa_attempts', '10 per hour'))
 def disable_2fa():
     conn = sqlite3.connect('main.db')
     cursor = conn.cursor()
@@ -697,13 +975,14 @@ def verify_password_for_backup_codes():
 
 @app.route('/api/enable_2fa_setup', methods=['POST'])
 @login_required
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('2fa_attempts', '10 per hour'))
 def enable_2fa_setup():
     session['setup_2fa'] = True
     return jsonify({'success': True})
 
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
-@limiter.limit("5 per minute", methods=['POST'])
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('password_change', '3 per hour'))
 def change_password():
     if request.method == 'POST':
         current_password = request.form.get('current_password', '')
@@ -738,8 +1017,16 @@ def change_password():
         conn.commit()
         conn.close()
         
-        flash('Password updated successfully!')
-        return redirect(url_for('dashboard'))
+        # Invalidate session on password change if configured
+        session_config = config.get('session', {})
+        if session_config.get('invalidate_on_password_change', True):
+            user_id = session['user_id']  # Store before clearing
+            session.clear()
+            flash('Password updated successfully! Please log in again with your new password.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Password updated successfully!')
+            return redirect(url_for('dashboard'))
     
     return render_template('change_password.html')
 
@@ -1383,6 +1670,7 @@ def export_full_backup():
 
 @app.route('/api/export')
 @login_required
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('export_requests', '20 per hour'))
 def export_data():
     format_type = request.args.get('format', 'csv')
     project_id = request.args.get('project_id')
@@ -1468,6 +1756,7 @@ def export_data():
 
 @app.route('/api/import', methods=['POST'])
 @login_required
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('import_requests', '5 per hour'))
 def import_data():
     """Import user data from JSON backup file"""
     try:
@@ -1475,24 +1764,27 @@ def import_data():
             return jsonify({'error': 'No file provided'}), 400
         
         file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
         
-        if not file.filename.endswith('.json'):
-            return jsonify({'error': 'Only JSON files are supported'}), 400
+        # Validate file using security pipeline
+        is_valid, validation_message = validate_upload_file(file)
+        if not is_valid:
+            log_error_with_context(Exception(f"File validation failed: {validation_message}"), 
+                                 '/api/import', additional_info=f"Filename: {file.filename}")
+            return jsonify({'error': validation_message}), 400
         
         # Read and parse JSON
         try:
             data = json.load(file)
-        except json.JSONDecodeError:
-            return jsonify({'error': 'Invalid JSON file'}), 400
+        except json.JSONDecodeError as e:
+            log_error_with_context(e, '/api/import', additional_info=f"JSON decode failed for file: {file.filename}")
+            return jsonify({'error': 'Invalid JSON file format'}), 400
         
-        # Validate data structure
-        if not isinstance(data, dict) or 'export_info' not in data:
-            return jsonify({'error': 'Invalid backup file format'}), 400
-        
-        if 'projects' not in data or 'time_entries' not in data:
-            return jsonify({'error': 'Missing required data in backup file'}), 400
+        # Validate JSON structure
+        is_valid, structure_message = validate_json_structure(data)
+        if not is_valid:
+            log_error_with_context(Exception(f"JSON structure validation failed: {structure_message}"), 
+                                 '/api/import', additional_info=f"File: {file.filename}")
+            return jsonify({'error': structure_message}), 400
         
         # Get merge strategy
         merge_strategy = request.form.get('merge_strategy', 'merge')  # 'merge' or 'replace'
@@ -1591,12 +1883,14 @@ def import_data():
             
         except Exception as e:
             conn.rollback()
-            return jsonify({'error': f'Database error: {str(e)}'}), 500
+            log_error_with_context(e, '/api/import', additional_info="Database operation failed during import")
+            return jsonify({'error': 'Database operation failed during import'}), 500
         finally:
             conn.close()
             
     except Exception as e:
-        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+        log_error_with_context(e, '/api/import', additional_info="Import operation failed")
+        return jsonify({'error': 'Import failed. Please check your file format and try again.'}), 500
 
 if __name__ == '__main__':
     init_main_db()

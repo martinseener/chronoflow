@@ -1,4 +1,42 @@
 {
+    "_comment": "Chronoflow Configuration File - Rename to config.json",
+    "_documentation": {
+        "flask": {
+            "secret_key": "CRITICAL: Change this in production! Used for session security.",
+            "env": "Environment name (development/production)",
+            "database_folder": "Directory to store user database files",
+            "debug": "Enable debug mode (boolean). Can also use FLASK_DEBUG env var."
+        },
+        "registration": {
+            "enabled": "Allow new user registration (boolean)",
+            "rate_limit": "Rate limit for registration attempts",
+            "require_2fa": "Force 2FA setup after registration (boolean)",
+            "message_when_disabled": "Message shown when registration is disabled"
+        },
+        "security": {
+            "min_processing_time": "Minimum processing time for auth operations (prevents timing attacks)",
+            "csrf_protection": "Enable CSRF protection (boolean)"
+        },
+        "session": {
+            "timeout_hours": "Session timeout in hours (default: 24)",
+            "secure_cookies": "Enable secure cookie flags (boolean)",
+            "invalidate_on_password_change": "Invalidate sessions when password changes (boolean)"
+        },
+        "rate_limiting": {
+            "enhanced_enabled": "Enable enhanced per-user rate limiting (boolean)",
+            "2fa_attempts": "Rate limit for 2FA operations (setup, verify, disable)",
+            "password_change": "Rate limit for password change attempts per user",
+            "export_requests": "Rate limit for data export requests per user",
+            "import_requests": "Rate limit for data import requests per user"
+        },
+        "logging": {
+            "enabled": "Enable application logging (boolean)",
+            "level": "Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+            "format": "Python logging format string",
+            "handlers": "Array of logging handlers - see examples below"
+        }
+    },
+
     "flask": {
         "secret_key": "your-secret-key-change-this-in-production",
         "env": "development",
@@ -14,5 +52,125 @@
     "security": {
         "min_processing_time": 0.1,
         "csrf_protection": true
+    },
+    "session": {
+        "timeout_hours": 24,
+        "secure_cookies": true,
+        "invalidate_on_password_change": true
+    },
+    "rate_limiting": {
+        "enhanced_enabled": true,
+        "2fa_attempts": "10 per hour",
+        "password_change": "3 per hour",
+        "export_requests": "20 per hour",
+        "import_requests": "5 per hour"
+    },
+
+    "_logging_examples": {
+        "basic_file_logging": {
+            "enabled": true,
+            "level": "INFO",
+            "handlers": [
+                {
+                    "type": "file",
+                    "path": "logs/chronoflow.log",
+                    "level": "INFO",
+                    "create_dir": true
+                }
+            ]
+        },
+        "production_linux_syslog": {
+            "enabled": true,
+            "level": "INFO", 
+            "handlers": [
+                {
+                    "type": "syslog",
+                    "facility": "local0",
+                    "level": "INFO",
+                    "ident": "chronoflow"
+                },
+                {
+                    "type": "file",
+                    "path": "/var/log/chronoflow/errors.log",
+                    "level": "ERROR",
+                    "create_dir": true
+                }
+            ]
+        },
+        "development_console": {
+            "enabled": true,
+            "level": "DEBUG",
+            "handlers": [
+                {
+                    "type": "console",
+                    "level": "DEBUG"
+                },
+                {
+                    "type": "file",
+                    "path": "logs/debug.log", 
+                    "level": "DEBUG",
+                    "create_dir": true
+                }
+            ]
+        },
+        "mixed_logging": {
+            "enabled": true,
+            "level": "INFO",
+            "handlers": [
+                {
+                    "type": "file",
+                    "path": "/var/log/chronoflow/app.log",
+                    "level": "INFO",
+                    "create_dir": true
+                },
+                {
+                    "type": "syslog",
+                    "facility": "daemon",
+                    "level": "WARNING", 
+                    "ident": "chronoflow"
+                },
+                {
+                    "type": "console",
+                    "level": "ERROR"
+                }
+            ]
+        }
+    },
+
+    "logging": {
+        "enabled": true,
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "_handler_types": [
+            "file: Write to log file",
+            "syslog: Send to syslog (Linux/Unix only)", 
+            "console: Write to console/terminal"
+        ],
+        "_syslog_facilities": [
+            "daemon, local0, local1, local2, local3, local4, local5, local6, local7"
+        ],
+        "_log_levels": [
+            "DEBUG: Detailed debug information",
+            "INFO: General information", 
+            "WARNING: Warning messages",
+            "ERROR: Error messages",
+            "CRITICAL: Critical error messages"
+        ],
+        "handlers": [
+            {
+                "type": "file",
+                "path": "logs/chronoflow.log",
+                "level": "INFO",
+                "create_dir": true,
+                "_comment": "Main application log"
+            },
+            {
+                "type": "file",
+                "path": "logs/errors.log",
+                "level": "ERROR", 
+                "create_dir": true,
+                "_comment": "Error-only log for monitoring"
+            }
+        ]
     }
 }
