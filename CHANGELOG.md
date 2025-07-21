@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-07-21
+
+### Code Quality & Refactoring
+- **Database Connection Management**
+  - Added database connection context managers (`get_main_db()`, `get_user_db()`)
+  - Automatic connection cleanup and transaction rollback on errors
+  - Eliminated 30+ repetitive database connection patterns throughout codebase
+- **Function Decomposition for Maintainability**
+  - Broke down `import_data()` function (138 lines) into focused helper functions:
+    - `validate_and_parse_import_file()` - File validation and parsing
+    - `import_projects_data()` - Project import handling
+    - `import_time_entries_data()` - Time entries import handling
+  - Refactored `login()` function (106 lines) into specialized helper functions:
+    - `authenticate_user_credentials()` - User authentication
+    - `handle_backup_code_login()` - Backup code processing
+    - `handle_totp_verification()` - TOTP verification
+    - `complete_login_session()` - Session setup
+    - `apply_timing_protection()` - Timing attack prevention
+- **Constants and Code Organization**
+  - Created comprehensive `constants.py` file with 50+ application constants
+  - Eliminated magic numbers and hardcoded strings throughout the application
+  - Standardized file size limits, timing delays, string lengths, and error messages
+  - Improved code maintainability and consistency
+
 ## [1.2.4] - 2025-07-21
 
 ### Security

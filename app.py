@@ -22,6 +22,7 @@ import traceback
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
+from constants import *
 
 app = Flask(__name__)
 
@@ -49,7 +50,7 @@ def load_config():
                 "csrf_protection": True
             },
             "session": {
-                "timeout_hours": 24,
+                "timeout_hours": DEFAULT_SESSION_TIMEOUT_HOURS,
                 "secure_cookies": True,
                 "invalidate_on_password_change": True
             },
@@ -156,7 +157,7 @@ app.config['WTF_CSRF_TIME_LIMIT'] = None
 
 # Configure session security
 session_config = config.get('session', {})
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=session_config.get('timeout_hours', 24))
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=session_config.get('timeout_hours', DEFAULT_SESSION_TIMEOUT_HOURS))
 
 # Set secure cookie flags
 if session_config.get('secure_cookies', True):
@@ -188,6 +189,38 @@ os.makedirs(app.config['DATABASE_FOLDER'], exist_ok=True)
 
 # Initialize logging
 setup_logging()
+
+# Database connection context managers
+from contextlib import contextmanager
+
+@contextmanager
+def get_main_db():
+    """Context manager for main.db connections with automatic cleanup"""
+    conn = sqlite3.connect('main.db')
+    try:
+        cursor = conn.cursor()
+        yield conn, cursor
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+@contextmanager
+def get_user_db(user_id):
+    """Context manager for user database connections with automatic cleanup"""
+    db_path = get_user_db_path(user_id)
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        yield conn, cursor
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 # Generic error handler for production
 @app.errorhandler(500)
@@ -257,7 +290,7 @@ def validate_hourly_rate(rate):
     """Validate hourly rate"""
     try:
         rate = float(rate)
-        return 0 <= rate <= 10000  # Reasonable upper limit
+        return 0 <= rate <= MAX_HOURLY_RATE
     except (ValueError, TypeError):
         return False
 
@@ -270,7 +303,7 @@ def validate_duration_minutes(duration):
     """Validate duration in minutes"""
     try:
         duration = int(duration)
-        return 0 <= duration <= 86400  # Max 24 hours in minutes
+        return 0 <= duration <= MAX_DURATION_MINUTES
     except (ValueError, TypeError):
         return False
 
@@ -318,7 +351,7 @@ def validate_upload_file(file):
     file_size = file.tell()
     file.seek(0)  # Reset file pointer
     
-    if file_size > 10 * 1024 * 1024:  # 10MB
+    if file_size > MAX_FILE_SIZE_BYTES:
         return False, "File too large (max 10MB)"
     
     if file_size == 0:
@@ -565,7 +598,7 @@ def is_using_default_secret_key():
     
     return current_key == default_key and not debug_mode
 
-def generate_backup_codes(count=10):
+def generate_backup_codes(count=DEFAULT_BACKUP_CODES_COUNT):
     """Generate backup codes for 2FA recovery"""
     codes = []
     for _ in range(count):
@@ -671,37 +704,31 @@ def register():
         # Simulate processing time to prevent timing attacks
         start_time = time.time()
         
-        conn = sqlite3.connect('main.db')
-        cursor = conn.cursor()
-        
         # Always hash the password to maintain consistent timing
         password_hash = generate_password_hash(password)
         
-        # Check if user already exists
-        cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
-        existing_user = cursor.fetchone()
+        with get_main_db() as (conn, cursor):
+            # Check if user already exists
+            cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
+            existing_user = cursor.fetchone()
+            
+            if existing_user:
+                # Ensure consistent timing by adding delay if needed
+                elapsed = time.time() - start_time
+                min_time = config['security']['min_processing_time']
+                if elapsed < min_time:
+                    time.sleep(min_time - elapsed)
+                flash('Registration request processed. If the email is valid, you will receive further instructions.')
+                return render_template('register.html')
         
-        if existing_user:
-            conn.close()
-            # Ensure consistent timing by adding delay if needed
-            elapsed = time.time() - start_time
-            min_time = config['security']['min_processing_time']
-            if elapsed < min_time:
-                time.sleep(min_time - elapsed)
-            flash('Registration request processed. If the email is valid, you will receive further instructions.')
-            return render_template('register.html')
-        
-        # Create new user with UUID
-        user_id = str(uuid.uuid4())
-        totp_secret = pyotp.random_base32()
-        
-        cursor.execute('''
-            INSERT INTO users (id, email, password_hash, totp_secret)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, email, password_hash, totp_secret))
-        
-        conn.commit()
-        conn.close()
+            # Create new user with UUID
+            user_id = str(uuid.uuid4())
+            totp_secret = pyotp.random_base32()
+            
+            cursor.execute('''
+                INSERT INTO users (id, email, password_hash, totp_secret)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, email, password_hash, totp_secret))
         
         # Ensure consistent timing
         elapsed = time.time() - start_time
@@ -720,30 +747,9 @@ def register():
     
     return render_template('register.html')
 
-@app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")
-def login():
-    if request.method == 'POST':
-        email = sanitize_string(request.form.get('email', ''), 254)
-        password = request.form.get('password', '')
-        totp_code = sanitize_string(request.form.get('totp_code', ''), 10)
-        backup_code = sanitize_string(request.form.get('backup_code', ''), 20)
-        
-        # Basic validation
-        if not validate_email(email):
-            flash('Invalid credentials')
-            return render_template('login.html', registration_enabled=config['registration']['enabled'])
-        
-        if totp_code and not validate_totp_code(totp_code):
-            flash('Invalid credentials')
-            return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
-                                 registration_enabled=config['registration']['enabled'])
-        
-        # Implement uniform response timing to prevent timing attacks
-        start_time = time.time()
-        
-        conn = sqlite3.connect('main.db')
-        cursor = conn.cursor()
+def authenticate_user_credentials(email, password):
+    """Authenticate user credentials and return user data if valid"""
+    with get_main_db() as (conn, cursor):
         cursor.execute('SELECT id, password_hash, totp_secret, totp_enabled, backup_codes FROM users WHERE email = ?', (email,))
         user = cursor.fetchone()
         
@@ -755,77 +761,110 @@ def login():
             check_password_hash('dummy_hash', password)
             password_valid = False
         
-        if user and password_valid:
-            if user[3]:  # TOTP enabled
+        return user if (user and password_valid) else None
+
+def handle_backup_code_login(user, backup_code):
+    """Handle backup code authentication and disable 2FA"""
+    is_valid, remaining_codes = verify_backup_code(user[4], backup_code)
+    if is_valid:
+        with get_main_db() as (conn, cursor):
+            # Disable 2FA and update backup codes
+            cursor.execute('UPDATE users SET totp_enabled = 0, backup_codes = ? WHERE id = ?', 
+                         (json.dumps(remaining_codes), user[0]))
+        return True
+    return False
+
+def handle_totp_verification(user, totp_code):
+    """Verify TOTP code for 2FA authentication"""
+    if not totp_code:
+        return False
+    
+    totp = pyotp.TOTP(user[2])  # user[2] is totp_secret
+    return totp.verify(totp_code)
+
+def complete_login_session(user, email, setup_2fa=False):
+    """Complete login by setting up session"""
+    session['user_id'] = user[0]
+    session['email'] = email
+    session['login_time'] = datetime.now().isoformat()
+    session.permanent = True
+    
+    if setup_2fa:
+        session['setup_2fa'] = True
+
+def apply_timing_protection(start_time):
+    """Apply timing protection to prevent timing attacks"""
+    elapsed = time.time() - start_time
+    if elapsed < TIMING_ATTACK_DELAY_SECONDS:
+        time.sleep(TIMING_ATTACK_DELAY_SECONDS - elapsed)
+
+@app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
+def login():
+    if request.method == 'POST':
+        email = sanitize_string(request.form.get('email', ''), MAX_EMAIL_LENGTH)
+        password = request.form.get('password', '')
+        totp_code = sanitize_string(request.form.get('totp_code', ''), MAX_TOTP_CODE_LENGTH)
+        backup_code = sanitize_string(request.form.get('backup_code', ''), MAX_BACKUP_CODE_LENGTH)
+        
+        # Basic validation
+        if not validate_email(email):
+            flash(ERROR_INVALID_CREDENTIALS)
+            return render_template('login.html', registration_enabled=config['registration']['enabled'])
+        
+        if totp_code and not validate_totp_code(totp_code):
+            flash(ERROR_INVALID_CREDENTIALS)
+            return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
+                                 registration_enabled=config['registration']['enabled'])
+        
+        # Implement uniform response timing to prevent timing attacks
+        start_time = time.time()
+        
+        # Authenticate user credentials
+        user = authenticate_user_credentials(email, password)
+        
+        if user:
+            # Handle 2FA if enabled
+            if user[3]:  # TOTP enabled (user[3] is totp_enabled)
                 if backup_code:
-                    # Try backup code login
-                    is_valid, remaining_codes = verify_backup_code(user[4], backup_code)
-                    if is_valid:
-                        # Disable 2FA and update backup codes
-                        cursor.execute('UPDATE users SET totp_enabled = 0, backup_codes = ? WHERE id = ?', 
-                                     (json.dumps(remaining_codes), user[0]))
-                        conn.commit()
-                        conn.close()
-                        
-                        # Ensure consistent timing
-                        elapsed = time.time() - start_time
-                        if elapsed < 0.5:
-                            time.sleep(0.5 - elapsed)
-                        
-                        session['user_id'] = user[0]
-                        session['email'] = email
-                        session['setup_2fa'] = True  # Force 2FA setup again
-                        flash('2FA has been disabled. You must set up 2FA again.')
+                    # Handle backup code login
+                    if handle_backup_code_login(user, backup_code):
+                        apply_timing_protection(start_time)
+                        complete_login_session(user, email, setup_2fa=True)
+                        flash(SUCCESS_2FA_DISABLED)
                         return redirect(url_for('setup_2fa'))
                     else:
-                        conn.close()
-                        # Ensure consistent timing
-                        elapsed = time.time() - start_time
-                        if elapsed < 0.5:
-                            time.sleep(0.5 - elapsed)
-                        flash('Invalid credentials')
+                        apply_timing_protection(start_time)
+                        flash(ERROR_INVALID_CREDENTIALS)
                         return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
                                              registration_enabled=config['registration']['enabled'])
                 
-                if not totp_code and not backup_code:
-                    conn.close()
-                    # Ensure consistent timing
-                    elapsed = time.time() - start_time
-                    if elapsed < 0.5:
-                        time.sleep(0.5 - elapsed)
+                elif totp_code:
+                    # Handle TOTP verification
+                    if handle_totp_verification(user, totp_code):
+                        apply_timing_protection(start_time)
+                        complete_login_session(user, email)
+                        return redirect(url_for('dashboard'))
+                    else:
+                        apply_timing_protection(start_time)
+                        flash(ERROR_INVALID_CREDENTIALS)
+                        return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
+                                             registration_enabled=config['registration']['enabled'])
+                
+                else:
+                    # Neither TOTP code nor backup code provided
+                    apply_timing_protection(start_time)
                     return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
                                          registration_enabled=config['registration']['enabled'])
-                
-                if totp_code:
-                    totp = pyotp.TOTP(user[2])
-                    if not totp.verify(totp_code):
-                        conn.close()
-                        # Ensure consistent timing
-                        elapsed = time.time() - start_time
-                        if elapsed < 0.5:
-                            time.sleep(0.5 - elapsed)
-                        flash('Invalid credentials')
-                        return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
-                                             registration_enabled=config['registration']['enabled'])
-            
-            conn.close()
-            # Ensure consistent timing
-            elapsed = time.time() - start_time
-            if elapsed < 0.5:
-                time.sleep(0.5 - elapsed)
-            
-            session['user_id'] = user[0]
-            session['email'] = email
-            session['last_activity'] = datetime.now().isoformat()
-            session.permanent = True
-            return redirect(url_for('dashboard'))
+            else:
+                # No 2FA - complete login
+                apply_timing_protection(start_time)
+                complete_login_session(user, email)
+                return redirect(url_for('dashboard'))
         else:
-            conn.close()
-            # Ensure consistent timing for failed login attempts
-            elapsed = time.time() - start_time
-            if elapsed < 0.5:
-                time.sleep(0.5 - elapsed)
-            flash('Invalid credentials')
+            # Authentication failed
+            apply_timing_protection(start_time)
+            flash(ERROR_INVALID_CREDENTIALS)
     
     return render_template('login.html', registration_enabled=config['registration']['enabled'])
 
@@ -1754,6 +1793,112 @@ def export_data():
         response.headers['Content-Disposition'] = f'attachment; filename={filename_prefix}_{timestamp}.csv'
         return response
 
+def validate_and_parse_import_file(file):
+    """Validate and parse the import file, return data or error"""
+    # Validate file using security pipeline
+    is_valid, validation_message = validate_upload_file(file)
+    if not is_valid:
+        log_error_with_context(Exception(f"File validation failed: {validation_message}"), 
+                             '/api/import', additional_info=f"Filename: {file.filename}")
+        return None, validation_message
+    
+    # Read and parse JSON
+    try:
+        data = json.load(file)
+    except json.JSONDecodeError as e:
+        log_error_with_context(e, '/api/import', additional_info=f"JSON decode failed for file: {file.filename}")
+        return None, 'Invalid JSON file format'
+    
+    # Validate JSON structure
+    is_valid, structure_message = validate_json_structure(data)
+    if not is_valid:
+        log_error_with_context(Exception(f"JSON structure validation failed: {structure_message}"), 
+                             '/api/import', additional_info=f"File: {file.filename}")
+        return None, structure_message
+    
+    return data, None
+
+def import_projects_data(cursor, conn, data, merge_strategy, stats):
+    """Import project data and return project ID mapping"""
+    project_id_mapping = {}
+    
+    if merge_strategy == 'replace':
+        # Clear existing data
+        cursor.execute('DELETE FROM time_entries')
+        cursor.execute('DELETE FROM projects')
+        conn.commit()
+    
+    for project_data in data.get('projects', []):
+        original_id = project_data.get('id')
+        name = project_data.get('name')
+        hourly_rate = project_data.get('hourly_rate', 0.0)
+        billing_increment = project_data.get('billing_increment', 'minute')
+        archived = project_data.get('archived', 0)
+        created_at = project_data.get('created_at')
+        
+        if not name:
+            continue
+        
+        if merge_strategy == 'merge':
+            # Check if project with same name exists
+            cursor.execute('SELECT id FROM projects WHERE name = ?', (name,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update existing project
+                cursor.execute('''
+                    UPDATE projects 
+                    SET hourly_rate = ?, billing_increment = ?, archived = ?
+                    WHERE id = ?
+                ''', (hourly_rate, billing_increment, archived, existing[0]))
+                project_id_mapping[original_id] = existing[0]
+                stats['projects_updated'] += 1
+            else:
+                # Insert new project
+                cursor.execute('''
+                    INSERT INTO projects (name, hourly_rate, billing_increment, archived, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (name, hourly_rate, billing_increment, archived, created_at))
+                project_id_mapping[original_id] = cursor.lastrowid
+                stats['projects_imported'] += 1
+        else:
+            # Replace mode - insert with original structure
+            cursor.execute('''
+                INSERT INTO projects (name, hourly_rate, billing_increment, archived, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (name, hourly_rate, billing_increment, archived, created_at))
+            project_id_mapping[original_id] = cursor.lastrowid
+            stats['projects_imported'] += 1
+    
+    return project_id_mapping
+
+def import_time_entries_data(cursor, data, project_id_mapping, stats):
+    """Import time entries data using project ID mapping"""
+    for entry_data in data.get('time_entries', []):
+        project_id = entry_data.get('project_id')
+        description = entry_data.get('description')
+        start_time = entry_data.get('start_time')
+        end_time = entry_data.get('end_time')
+        duration_minutes = entry_data.get('duration_minutes')
+        earnings = entry_data.get('earnings', 0.0)
+        invoiced = entry_data.get('invoiced', 0)
+        billing_status = entry_data.get('billing_status', 'pending')
+        created_at = entry_data.get('created_at')
+        
+        # Map project ID from import data to local project ID
+        mapped_project_id = project_id_mapping.get(project_id)
+        if not mapped_project_id:
+            continue  # Skip entries without valid project mapping
+        
+        cursor.execute('''
+            INSERT INTO time_entries 
+            (project_id, description, start_time, end_time, duration_minutes, 
+             earnings, invoiced, billing_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (mapped_project_id, description, start_time, end_time, duration_minutes,
+              earnings, invoiced, billing_status, created_at))
+        stats['time_entries_imported'] += 1
+
 @app.route('/api/import', methods=['POST'])
 @login_required
 @enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('import_requests', '5 per hour'))
@@ -1761,136 +1906,39 @@ def import_data():
     """Import user data from JSON backup file"""
     try:
         if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
+            return jsonify({'error': ERROR_NO_FILE_PROVIDED}), HTTP_BAD_REQUEST
         
         file = request.files['file']
         
-        # Validate file using security pipeline
-        is_valid, validation_message = validate_upload_file(file)
-        if not is_valid:
-            log_error_with_context(Exception(f"File validation failed: {validation_message}"), 
-                                 '/api/import', additional_info=f"Filename: {file.filename}")
-            return jsonify({'error': validation_message}), 400
-        
-        # Read and parse JSON
-        try:
-            data = json.load(file)
-        except json.JSONDecodeError as e:
-            log_error_with_context(e, '/api/import', additional_info=f"JSON decode failed for file: {file.filename}")
-            return jsonify({'error': 'Invalid JSON file format'}), 400
-        
-        # Validate JSON structure
-        is_valid, structure_message = validate_json_structure(data)
-        if not is_valid:
-            log_error_with_context(Exception(f"JSON structure validation failed: {structure_message}"), 
-                                 '/api/import', additional_info=f"File: {file.filename}")
-            return jsonify({'error': structure_message}), 400
+        # Validate and parse import file
+        data, error_message = validate_and_parse_import_file(file)
+        if error_message:
+            return jsonify({'error': error_message}), 400
         
         # Get merge strategy
         merge_strategy = request.form.get('merge_strategy', 'merge')  # 'merge' or 'replace'
         
-        db_path = get_user_db_path(session['user_id'])
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
+        # Initialize import statistics
         stats = {'projects_imported': 0, 'time_entries_imported': 0, 'projects_updated': 0}
         
-        try:
-            # Handle projects
-            project_id_mapping = {}
+        # Use database context manager for safe operations
+        with get_user_db(session['user_id']) as (conn, cursor):
+            # Import projects and get ID mapping
+            project_id_mapping = import_projects_data(cursor, conn, data, merge_strategy, stats)
             
-            if merge_strategy == 'replace':
-                # Clear existing data
-                cursor.execute('DELETE FROM time_entries')
-                cursor.execute('DELETE FROM projects')
-                conn.commit()
+            # Import time entries using project mapping
+            import_time_entries_data(cursor, data, project_id_mapping, stats)
             
-            for project_data in data.get('projects', []):
-                original_id = project_data.get('id')
-                name = project_data.get('name')
-                hourly_rate = project_data.get('hourly_rate', 0.0)
-                billing_increment = project_data.get('billing_increment', 'minute')
-                archived = project_data.get('archived', 0)
-                created_at = project_data.get('created_at')
-                
-                if not name:
-                    continue
-                
-                if merge_strategy == 'merge':
-                    # Check if project with same name exists
-                    cursor.execute('SELECT id FROM projects WHERE name = ?', (name,))
-                    existing = cursor.fetchone()
-                    
-                    if existing:
-                        # Update existing project
-                        cursor.execute('''
-                            UPDATE projects 
-                            SET hourly_rate = ?, billing_increment = ?, archived = ?
-                            WHERE id = ?
-                        ''', (hourly_rate, billing_increment, archived, existing[0]))
-                        project_id_mapping[original_id] = existing[0]
-                        stats['projects_updated'] += 1
-                    else:
-                        # Insert new project
-                        cursor.execute('''
-                            INSERT INTO projects (name, hourly_rate, billing_increment, archived, created_at)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (name, hourly_rate, billing_increment, archived, created_at))
-                        project_id_mapping[original_id] = cursor.lastrowid
-                        stats['projects_imported'] += 1
-                else:
-                    # Replace mode - insert with original structure
-                    cursor.execute('''
-                        INSERT INTO projects (name, hourly_rate, billing_increment, archived, created_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (name, hourly_rate, billing_increment, archived, created_at))
-                    project_id_mapping[original_id] = cursor.lastrowid
-                    stats['projects_imported'] += 1
-            
-            # Handle time entries
-            for entry_data in data.get('time_entries', []):
-                project_id = entry_data.get('project_id')
-                description = entry_data.get('description')
-                start_time = entry_data.get('start_time')
-                end_time = entry_data.get('end_time')
-                duration_minutes = entry_data.get('duration_minutes')
-                earnings = entry_data.get('earnings', 0.0)
-                invoiced = entry_data.get('invoiced', 0)
-                billing_status = entry_data.get('billing_status', 'pending')
-                created_at = entry_data.get('created_at')
-                
-                # Map to new project ID
-                new_project_id = project_id_mapping.get(project_id)
-                if not new_project_id:
-                    continue  # Skip entries for projects that couldn't be imported
-                
-                cursor.execute('''
-                    INSERT INTO time_entries 
-                    (project_id, description, start_time, end_time, duration_minutes, 
-                     earnings, invoiced, billing_status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (new_project_id, description, start_time, end_time, duration_minutes,
-                      earnings, invoiced, billing_status, created_at))
-                stats['time_entries_imported'] += 1
-            
-            conn.commit()
-            
+            # Return success response
             return jsonify({
                 'success': True,
-                'message': 'Data imported successfully',
+                'message': SUCCESS_IMPORT_COMPLETE,
                 'stats': stats
             })
             
-        except Exception as e:
-            conn.rollback()
-            log_error_with_context(e, '/api/import', additional_info="Database operation failed during import")
-            return jsonify({'error': 'Database operation failed during import'}), 500
-        finally:
-            conn.close()
-            
     except Exception as e:
         log_error_with_context(e, '/api/import', additional_info="Import operation failed")
-        return jsonify({'error': 'Import failed. Please check your file format and try again.'}), 500
+        return jsonify({'error': ERROR_GENERIC_IMPORT_FAILED}), HTTP_INTERNAL_SERVER_ERROR
 
 if __name__ == '__main__':
     init_main_db()
