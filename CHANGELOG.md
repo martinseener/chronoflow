@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2025-07-21
+
+### Security
+- Fixed SQL injection vulnerabilities in query construction
+  - Replaced f-string interpolation with safe string concatenation in billing status filters
+  - Secured dynamic WHERE clause construction in get_time_entries() and export_data()
+- Fixed debug mode exposure in production
+  - Added flexible debug configuration via environment variable or config file
+
 ## [1.2.1] - 2025-07-21
 
 ### Security
@@ -13,10 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added CSRF token protection to all AJAX requests
   - Implemented secure fetch helpers with automatic CSRF token inclusion
   - Protected project management, time tracking, 2FA, and import/export operations
-
-### Enhanced  
-- Added centralized CSRF token management with JavaScript helper functions
-- Maintained backward compatibility with existing HTML forms
 
 ## [1.2.0] - 2025-07-21
 
@@ -28,11 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Project names filtered for XSS characters with length limits
   - API endpoints now validate all input data with detailed error messages
 - Enhanced authentication security with proper input validation on all forms
-
-### Enhanced
-- Improved error handling with user-friendly validation messages
-- Centralized validation framework for consistent security across all endpoints
-- Better type safety with proper data conversion and bounds checking
 
 ## [1.1.3] - 2025-07-21
 

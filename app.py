@@ -899,7 +899,7 @@ def get_time_entries():
         status_list = [status.strip() for status in billing_statuses.split(',')]
         if status_list:  # Only apply filter if we have valid statuses
             placeholders = ','.join(['?' for _ in status_list])
-            query += f' AND COALESCE(te.billing_status, CASE WHEN te.invoiced = 1 THEN "invoiced" ELSE "pending" END) IN ({placeholders})'
+            query += ' AND COALESCE(te.billing_status, CASE WHEN te.invoiced = 1 THEN "invoiced" ELSE "pending" END) IN (' + placeholders + ')'
             params.extend(status_list)
     elif billing_status_filter:
         query += ' AND COALESCE(te.billing_status, CASE WHEN te.invoiced = 1 THEN "invoiced" ELSE "pending" END) = ?'
@@ -1432,7 +1432,7 @@ def export_data():
         status_list = [status.strip() for status in billing_statuses.split(',')]
         if status_list:  # Only apply filter if we have valid statuses
             placeholders = ','.join(['?' for _ in status_list])
-            query += f' AND COALESCE(te.billing_status, CASE WHEN te.invoiced = 1 THEN "invoiced" ELSE "pending" END) IN ({placeholders})'
+            query += ' AND COALESCE(te.billing_status, CASE WHEN te.invoiced = 1 THEN "invoiced" ELSE "pending" END) IN (' + placeholders + ')'
             params.extend(status_list)
     
     query += ' ORDER BY te.start_time'
@@ -1600,4 +1600,14 @@ def import_data():
 
 if __name__ == '__main__':
     init_main_db()
-    app.run(debug=True)
+    # Use environment variable or config file to control debug mode, default to False for production safety
+    debug_from_env = os.environ.get('FLASK_DEBUG')
+    debug_from_config = config.get('flask', {}).get('debug', False)
+    
+    # Priority: Environment variable > Config file > Default (False)
+    if debug_from_env is not None:
+        debug_mode = debug_from_env.lower() in ['true', '1', 'yes', 'on']
+    else:
+        debug_mode = bool(debug_from_config)
+    
+    app.run(debug=debug_mode)
