@@ -492,6 +492,27 @@ let startTime;
 let currentProject = null;
 let projects = [];
 
+// Format for datetime-local input (YYYY-MM-DDTHH:MM) using local time
+function formatDateTimeLocal(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// Parse datetime-local input as local time (explicit parsing to avoid browser inconsistencies)
+function parseDateTimeLocal(dateTimeString) {
+    // dateTimeString format: "YYYY-MM-DDTHH:MM"
+    const [datePart, timePart] = dateTimeString.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = timePart.split(':').map(Number);
+    
+    // Create Date object using local time constructor
+    return new Date(year, month - 1, day, hours, minutes);
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
     loadProjects();
@@ -627,8 +648,8 @@ function showManualEntry() {
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     
-    document.getElementById('manualStartTime').value = oneHourAgo.toISOString().slice(0, -8);
-    document.getElementById('manualEndTime').value = now.toISOString().slice(0, -8);
+    document.getElementById('manualStartTime').value = formatDateTimeLocal(oneHourAgo);
+    document.getElementById('manualEndTime').value = formatDateTimeLocal(now);
     
     modal.show();
 }
@@ -640,8 +661,13 @@ function saveManualEntry() {
         return;
     }
     
-    const startTime = new Date(document.getElementById('manualStartTime').value);
-    const endTime = new Date(document.getElementById('manualEndTime').value);
+    // Parse datetime-local input values as local time explicitly
+    const startTimeInput = document.getElementById('manualStartTime').value;
+    const endTimeInput = document.getElementById('manualEndTime').value;
+    
+    // Use explicit parsing to ensure local time interpretation
+    const startTime = parseDateTimeLocal(startTimeInput);
+    const endTime = parseDateTimeLocal(endTimeInput);
     const duration = calculateMinutes(startTime, endTime);
     
     if (duration <= 0) {
@@ -1421,16 +1447,6 @@ function editEntry(entryId) {
         const startTime = new Date(entry.start_time);
         const endTime = new Date(entry.end_time);
         
-        // Format for datetime-local input (YYYY-MM-DDTHH:MM) using local time
-        function formatDateTimeLocal(date) {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            return `${year}-${month}-${day}T${hours}:${minutes}`;
-        }
-        
         document.getElementById('editEntryStartTime').value = formatDateTimeLocal(startTime);
         document.getElementById('editEntryEndTime').value = formatDateTimeLocal(endTime);
         document.getElementById('editEntryDescription').value = entry.description;
@@ -1453,8 +1469,8 @@ function saveEditedEntry() {
     }
     
     const entryId = document.getElementById('editEntryId').value;
-    const startTime = new Date(document.getElementById('editEntryStartTime').value);
-    const endTime = new Date(document.getElementById('editEntryEndTime').value);
+    const startTime = parseDateTimeLocal(document.getElementById('editEntryStartTime').value);
+    const endTime = parseDateTimeLocal(document.getElementById('editEntryEndTime').value);
     const duration = calculateMinutes(startTime, endTime);
     
     if (duration <= 0) {
