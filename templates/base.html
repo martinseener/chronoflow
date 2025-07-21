@@ -35,7 +35,7 @@
             <div class="navbar-nav ms-auto">
                 <div class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        {{ session.email }}
+                        {{ session.email|e }}
                     </a>
                     <ul class="dropdown-menu" aria-labelledby="navbarDropdown">
                         <li><a class="dropdown-item" href="{{ url_for('change_password') }}">
@@ -63,7 +63,7 @@
             {% if messages %}
                 {% for message in messages %}
                     <div class="alert alert-info alert-dismissible fade show" role="alert">
-                        {{ message }}
+                        {{ message|e }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 {% endfor %}
@@ -320,7 +320,10 @@
                     data.backup_codes.forEach((code, index) => {
                         const codeDiv = document.createElement('div');
                         codeDiv.className = 'col-md-6';
-                        codeDiv.innerHTML = `<code class="d-block p-2 bg-light border rounded mb-1">${code}</code>`;
+                        const codeElement = document.createElement('code');
+                        codeElement.className = 'd-block p-2 bg-light border rounded mb-1';
+                        codeElement.textContent = code;
+                        codeDiv.appendChild(codeElement);
                         codesDiv.appendChild(codeDiv);
                     });
                     
@@ -421,12 +424,18 @@
         .then(data => {
             if (data.success) {
                 const stats = data.stats;
-                let message = `Import completed successfully!<br>`;
-                message += `Projects imported: ${stats.projects_imported}<br>`;
-                message += `Projects updated: ${stats.projects_updated}<br>`;
-                message += `Time entries imported: ${stats.time_entries_imported}`;
+                const message = document.createElement('div');
+                message.innerHTML = 'Import completed successfully!<br>';
+                message.innerHTML += `Projects imported: ${parseInt(stats.projects_imported)}<br>`;
+                message.innerHTML += `Projects updated: ${parseInt(stats.projects_updated)}<br>`;
+                message.innerHTML += `Time entries imported: ${parseInt(stats.time_entries_imported)}`;
                 
-                statusDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check"></i> ${message}</div>`;
+                const successDiv = document.createElement('div');
+                successDiv.className = 'alert alert-success';
+                successDiv.innerHTML = '<i class="fas fa-check"></i> ';
+                successDiv.appendChild(message);
+                statusDiv.innerHTML = '';
+                statusDiv.appendChild(successDiv);
                 
                 // Reset form
                 document.getElementById('importForm').reset();
@@ -436,7 +445,13 @@
                     window.location.reload();
                 }, 2000);
             } else {
-                statusDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Import failed: ${data.error}</div>`;
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'alert alert-danger';
+                errorDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Import failed: ';
+                const errorText = document.createTextNode(data.error || 'Unknown error');
+                errorDiv.appendChild(errorText);
+                statusDiv.innerHTML = '';
+                statusDiv.appendChild(errorDiv);
             }
         })
         .catch(error => {

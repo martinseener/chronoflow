@@ -14,6 +14,7 @@ import uuid
 import secrets
 import string
 import time
+import re
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
@@ -65,6 +66,135 @@ limiter.init_app(app)
 
 # Ensure database folder exists
 os.makedirs(app.config['DATABASE_FOLDER'], exist_ok=True)
+
+# Input validation functions
+def validate_email(email):
+    """Validate email format"""
+    if not email or not isinstance(email, str):
+        return False
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_pattern, email) and len(email) <= 254
+
+def validate_password(password):
+    """Validate password strength"""
+    if not password or not isinstance(password, str):
+        return False, "Password is required"
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    if len(password) > 128:
+        return False, "Password is too long"
+    if not re.search(r'[A-Za-z]', password):
+        return False, "Password must contain at least one letter"
+    if not re.search(r'[0-9]', password):
+        return False, "Password must contain at least one number"
+    return True, "Valid"
+
+def validate_project_name(name):
+    """Validate project name"""
+    if not name or not isinstance(name, str):
+        return False
+    name = name.strip()
+    return 1 <= len(name) <= 100 and not any(char in name for char in '<>&"\'')
+
+def validate_description(description):
+    """Validate time entry description"""
+    if description is None:
+        return True  # Description is optional
+    if not isinstance(description, str):
+        return False
+    return len(description) <= 500
+
+def validate_hourly_rate(rate):
+    """Validate hourly rate"""
+    try:
+        rate = float(rate)
+        return 0 <= rate <= 10000  # Reasonable upper limit
+    except (ValueError, TypeError):
+        return False
+
+def validate_billing_increment(increment):
+    """Validate billing increment"""
+    valid_increments = ['minute', '15min', '30min', 'hour']
+    return increment in valid_increments
+
+def validate_duration_minutes(duration):
+    """Validate duration in minutes"""
+    try:
+        duration = int(duration)
+        return 0 <= duration <= 86400  # Max 24 hours in minutes
+    except (ValueError, TypeError):
+        return False
+
+def validate_datetime_string(dt_string):
+    """Validate datetime string format"""
+    if not dt_string or not isinstance(dt_string, str):
+        return False
+    try:
+        datetime.fromisoformat(dt_string.replace('Z', '+00:00'))
+        return True
+    except ValueError:
+        return False
+
+def validate_totp_code(code):
+    """Validate TOTP code format"""
+    if not code or not isinstance(code, str):
+        return False
+    return code.isdigit() and len(code) == 6
+
+def validate_billing_status(status):
+    """Validate billing status"""
+    valid_statuses = ['pending', 'invoiced', 'unbilled']
+    return status in valid_statuses
+
+def sanitize_string(value, max_length=None):
+    """Sanitize string input"""
+    if not isinstance(value, str):
+        return ""
+    # Strip whitespace and limit length
+    value = value.strip()
+    if max_length:
+        value = value[:max_length]
+    return value
+
+def validate_and_sanitize_request_data(data, schema):
+    """Validate and sanitize request data against schema"""
+    errors = []
+    sanitized = {}
+    
+    for field, rules in schema.items():
+        value = data.get(field)
+        
+        # Check required fields
+        if rules.get('required', False) and (value is None or value == ''):
+            errors.append(f"{field} is required")
+            continue
+            
+        # Skip validation if field is optional and empty
+        if not rules.get('required', False) and (value is None or value == ''):
+            sanitized[field] = None
+            continue
+            
+        # Type validation
+        field_type = rules.get('type', str)
+        if field_type == str and value is not None:
+            value = sanitize_string(value, rules.get('max_length'))
+        elif field_type in [int, float] and value is not None:
+            try:
+                value = field_type(value)
+            except (ValueError, TypeError):
+                errors.append(f"{field} must be a {field_type.__name__}")
+                continue
+                
+        # Custom validation
+        validator = rules.get('validator')
+        if validator and value is not None:
+            if not validator(value):
+                errors.append(f"{field} is invalid")
+                continue
+                
+        sanitized[field] = value
+        
+    return sanitized, errors
 
 # Initialize main database on app startup
 def init_main_db():
@@ -246,9 +376,20 @@ def register():
                              message=config['registration']['message_when_disabled'])
     
     if request.method == 'POST':
-        email = request.form['email']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
+        email = sanitize_string(request.form.get('email', ''), 254)
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validate email format
+        if not validate_email(email):
+            flash('Please enter a valid email address.', 'error')
+            return render_template('register.html')
+        
+        # Validate password strength
+        is_valid, message = validate_password(password)
+        if not is_valid:
+            flash(message, 'error')
+            return render_template('register.html')
         
         # Check if passwords match
         if password != confirm_password:
@@ -311,10 +452,20 @@ def register():
 @limiter.limit("10 per minute")
 def login():
     if request.method == 'POST':
-        email = request.form['email']
-        password = request.form['password']
-        totp_code = request.form.get('totp_code', '')
-        backup_code = request.form.get('backup_code', '')
+        email = sanitize_string(request.form.get('email', ''), 254)
+        password = request.form.get('password', '')
+        totp_code = sanitize_string(request.form.get('totp_code', ''), 10)
+        backup_code = sanitize_string(request.form.get('backup_code', ''), 20)
+        
+        # Basic validation
+        if not validate_email(email):
+            flash('Invalid credentials')
+            return render_template('login.html', registration_enabled=config['registration']['enabled'])
+        
+        if totp_code and not validate_totp_code(totp_code):
+            flash('Invalid credentials')
+            return render_template('login.html', needs_totp=True, email=email, show_backup=True, 
+                                 registration_enabled=config['registration']['enabled'])
         
         # Implement uniform response timing to prevent timing attacks
         start_time = time.time()
@@ -456,7 +607,12 @@ def setup_2fa():
 @app.route('/verify_2fa', methods=['POST'])
 @login_required
 def verify_2fa():
-    totp_code = request.form['totp_code']
+    totp_code = sanitize_string(request.form.get('totp_code', ''), 10)
+    
+    # Validate TOTP code format
+    if not validate_totp_code(totp_code):
+        flash('Invalid TOTP code format')
+        return redirect(url_for('setup_2fa'))
     
     conn = sqlite3.connect('main.db')
     cursor = conn.cursor()
@@ -517,11 +673,12 @@ def disable_2fa():
 @login_required
 @csrf.exempt
 def verify_password_for_backup_codes():
-    data = request.json
-    password = data.get('password')
+    data = request.json or {}
+    password = data.get('password', '')
     
-    if not password:
-        return jsonify({'success': False, 'error': 'Password required'}), 400
+    # Basic validation
+    if not password or not isinstance(password, str) or len(password) > 128:
+        return jsonify({'success': False, 'error': 'Invalid password'}), 400
     
     conn = sqlite3.connect('main.db')
     cursor = conn.cursor()
@@ -553,9 +710,15 @@ def enable_2fa_setup():
 @limiter.limit("5 per minute", methods=['POST'])
 def change_password():
     if request.method == 'POST':
-        current_password = request.form['current_password']
-        new_password = request.form['new_password']
-        confirm_password = request.form['confirm_password']
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validate new password strength
+        is_valid, message = validate_password(new_password)
+        if not is_valid:
+            flash(message)
+            return render_template('change_password.html')
         
         if new_password != confirm_password:
             flash('New passwords do not match')
@@ -625,38 +788,66 @@ def get_projects():
 @login_required
 @csrf.exempt
 def create_project():
-    data = request.json
+    data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
+    
+    # Validate and sanitize input
+    schema = {
+        'name': {'required': True, 'type': str, 'max_length': 100, 'validator': validate_project_name},
+        'hourly_rate': {'required': True, 'type': float, 'validator': validate_hourly_rate},
+        'billing_increment': {'required': False, 'type': str, 'validator': validate_billing_increment}
+    }
+    
+    sanitized_data, errors = validate_and_sanitize_request_data(data, schema)
+    
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    billing_increment = sanitized_data.get('billing_increment') or 'minute'
+    
     cursor.execute('INSERT INTO projects (name, hourly_rate, billing_increment) VALUES (?, ?, ?)', 
-                  (data['name'], data['hourly_rate'], data.get('billing_increment', 'minute')))
+                  (sanitized_data['name'], sanitized_data['hourly_rate'], billing_increment))
     project_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return jsonify({
         'id': project_id, 
-        'name': data['name'], 
-        'hourly_rate': data['hourly_rate'],
-        'billing_increment': data.get('billing_increment', 'minute')
+        'name': sanitized_data['name'], 
+        'hourly_rate': sanitized_data['hourly_rate'],
+        'billing_increment': billing_increment
     })
 
 @app.route('/api/projects/<int:project_id>', methods=['PUT'])
 @login_required
 @csrf.exempt
 def update_project(project_id):
-    data = request.json
+    data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
+    
+    # Validate and sanitize input
+    schema = {
+        'name': {'required': True, 'type': str, 'max_length': 100, 'validator': validate_project_name},
+        'hourly_rate': {'required': True, 'type': float, 'validator': validate_hourly_rate},
+        'billing_increment': {'required': False, 'type': str, 'validator': validate_billing_increment}
+    }
+    
+    sanitized_data, errors = validate_and_sanitize_request_data(data, schema)
+    
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    billing_increment = sanitized_data.get('billing_increment') or 'minute'
+    
     cursor.execute('UPDATE projects SET name = ?, hourly_rate = ?, billing_increment = ? WHERE id = ?', 
-                  (data['name'], data['hourly_rate'], data.get('billing_increment', 'minute'), project_id))
+                  (sanitized_data['name'], sanitized_data['hourly_rate'], billing_increment, project_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -767,15 +958,29 @@ def unarchive_project(project_id):
 @login_required
 @csrf.exempt
 def create_time_entry():
-    data = request.json
+    data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
+    
+    # Validate and sanitize input
+    schema = {
+        'project_id': {'required': True, 'type': int},
+        'description': {'required': False, 'type': str, 'max_length': 500, 'validator': validate_description},
+        'start_time': {'required': True, 'type': str, 'validator': validate_datetime_string},
+        'end_time': {'required': True, 'type': str, 'validator': validate_datetime_string},
+        'duration_minutes': {'required': True, 'type': int, 'validator': validate_duration_minutes}
+    }
+    
+    sanitized_data, errors = validate_and_sanitize_request_data(data, schema)
+    
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     # Get project details including billing increment
-    cursor.execute('SELECT hourly_rate, billing_increment FROM projects WHERE id = ?', (data['project_id'],))
+    cursor.execute('SELECT hourly_rate, billing_increment FROM projects WHERE id = ?', (sanitized_data['project_id'],))
     result = cursor.fetchone()
     if not result:
         conn.close()
@@ -785,7 +990,7 @@ def create_time_entry():
     billing_increment = result[1] if len(result) > 1 and result[1] else 'minute'
     
     # Calculate billable minutes based on increment
-    raw_minutes = data['duration_minutes']
+    raw_minutes = sanitized_data['duration_minutes']
     billable_minutes = calculate_billable_minutes(raw_minutes, billing_increment)
     
     # Calculate earnings
@@ -794,8 +999,8 @@ def create_time_entry():
     cursor.execute('''
         INSERT INTO time_entries (project_id, description, start_time, end_time, duration_minutes, earnings, billing_status)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (data['project_id'], data['description'], data['start_time'], 
-          data['end_time'], billable_minutes, earnings, 'pending'))
+    ''', (sanitized_data['project_id'], sanitized_data.get('description'), sanitized_data['start_time'], 
+          sanitized_data['end_time'], billable_minutes, earnings, 'pending'))
     
     entry_id = cursor.lastrowid
     conn.commit()
@@ -829,8 +1034,22 @@ def delete_time_entry(entry_id):
 @login_required
 @csrf.exempt
 def update_time_entry(entry_id):
-    data = request.json
+    data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
+    
+    # Validate and sanitize input
+    schema = {
+        'project_id': {'required': True, 'type': int},
+        'description': {'required': False, 'type': str, 'max_length': 500, 'validator': validate_description},
+        'start_time': {'required': True, 'type': str, 'validator': validate_datetime_string},
+        'end_time': {'required': True, 'type': str, 'validator': validate_datetime_string},
+        'duration_minutes': {'required': True, 'type': int, 'validator': validate_duration_minutes}
+    }
+    
+    sanitized_data, errors = validate_and_sanitize_request_data(data, schema)
+    
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
@@ -849,7 +1068,7 @@ def update_time_entry(entry_id):
         return jsonify({'error': f'Cannot edit {result[0]} entries'}), 400
     
     # Get project details including billing increment
-    cursor.execute('SELECT hourly_rate, billing_increment FROM projects WHERE id = ?', (data['project_id'],))
+    cursor.execute('SELECT hourly_rate, billing_increment FROM projects WHERE id = ?', (sanitized_data['project_id'],))
     project_result = cursor.fetchone()
     if not project_result:
         conn.close()
@@ -859,7 +1078,7 @@ def update_time_entry(entry_id):
     billing_increment = project_result[1] if len(project_result) > 1 and project_result[1] else 'minute'
     
     # Calculate billable minutes based on increment
-    raw_minutes = data['duration_minutes']
+    raw_minutes = sanitized_data['duration_minutes']
     billable_minutes = calculate_billable_minutes(raw_minutes, billing_increment)
     
     # Calculate earnings
@@ -871,8 +1090,8 @@ def update_time_entry(entry_id):
         SET project_id = ?, description = ?, start_time = ?, end_time = ?, 
             duration_minutes = ?, earnings = ?
         WHERE id = ?
-    ''', (data['project_id'], data['description'], data['start_time'], 
-          data['end_time'], billable_minutes, earnings, entry_id))
+    ''', (sanitized_data['project_id'], sanitized_data.get('description'), sanitized_data['start_time'], 
+          sanitized_data['end_time'], billable_minutes, earnings, entry_id))
     
     conn.commit()
     conn.close()
@@ -883,14 +1102,20 @@ def update_time_entry(entry_id):
 @login_required
 @csrf.exempt
 def set_billing_status(entry_id):
-    data = request.json
+    data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
     
-    # Validate billing status
-    valid_statuses = ['pending', 'invoiced', 'unbilled']
-    new_status = data.get('status')
-    if new_status not in valid_statuses:
-        return jsonify({'error': 'Invalid billing status. Must be one of: ' + ', '.join(valid_statuses)}), 400
+    # Validate and sanitize input
+    schema = {
+        'status': {'required': True, 'type': str, 'validator': validate_billing_status}
+    }
+    
+    sanitized_data, errors = validate_and_sanitize_request_data(data, schema)
+    
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
+    
+    new_status = sanitized_data['status']
     
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)

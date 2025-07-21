@@ -480,7 +480,7 @@
 
 <!-- Footer -->
 <footer class="text-center mt-5 py-3 border-top">
-    <small class="text-muted">Chronoflow {{ version }}</small>
+    <small class="text-muted">Chronoflow {{ version|e }}</small>
 </footer>
 
 {% endblock %}
@@ -491,6 +491,19 @@ let timerInterval;
 let startTime;
 let currentProject = null;
 let projects = [];
+
+// HTML escaping function to prevent XSS attacks
+function escapeHtml(unsafe) {
+    if (unsafe == null || unsafe === undefined) {
+        return '';
+    }
+    return String(unsafe)
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
 
 // Format for datetime-local input (YYYY-MM-DDTHH:MM) using local time
 function formatDateTimeLocal(date) {
@@ -805,11 +818,11 @@ function loadProjectsList() {
                     ${project.archived ? '<div class="badge bg-warning mb-2">Archived</div>' : ''}
                     <div class="row align-items-center">
                         <div class="col-md-3">
-                            <input type="text" class="form-control" value="${project.name}" id="project-name-${project.id}">
+                            <input type="text" class="form-control" value="${escapeHtml(project.name)}" id="project-name-${project.id}">
                         </div>
                         <div class="col-md-3">
                             <div class="input-group">
-                                <input type="number" class="form-control" value="${project.hourly_rate}" step="0.01" id="project-rate-${project.id}" style="min-width: 80px;">
+                                <input type="number" class="form-control" value="${parseFloat(project.hourly_rate) || 0}" step="0.01" id="project-rate-${project.id}" style="min-width: 80px;">
                                 <span class="input-group-text">€/hr</span>
                             </div>
                         </div>
@@ -1200,11 +1213,11 @@ function updateHistoryTable(entries) {
         
         row.innerHTML = `
             <td>${startDate.toLocaleDateString()}</td>
-            <td>${entry.project_name || 'Unknown'}</td>
+            <td>${escapeHtml(entry.project_name || 'Unknown')}</td>
             <td>${startTime.toLocaleTimeString()} - ${endTime.toLocaleTimeString()}</td>
-            <td>${entry.description}</td>
+            <td>${escapeHtml(entry.description || '')}</td>
             <td>${formatDuration(entry.duration_minutes)}</td>
-            <td class="text-success">€${entry.earnings.toFixed(2)}</td>
+            <td class="text-success">€${(parseFloat(entry.earnings) || 0).toFixed(2)}</td>
             <td>
                 ${getBillingStatusBadge(entry.billing_status || (entry.invoiced ? 'invoiced' : 'pending'))}
             </td>
