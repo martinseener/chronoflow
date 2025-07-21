@@ -647,7 +647,6 @@ def dashboard():
 
 @app.route('/api/2fa_status')
 @login_required
-@csrf.exempt
 def get_2fa_status():
     conn = sqlite3.connect('main.db')
     cursor = conn.cursor()
@@ -659,7 +658,6 @@ def get_2fa_status():
 
 @app.route('/api/disable_2fa', methods=['POST'])
 @login_required
-@csrf.exempt
 def disable_2fa():
     conn = sqlite3.connect('main.db')
     cursor = conn.cursor()
@@ -671,7 +669,6 @@ def disable_2fa():
 
 @app.route('/api/verify_password_for_backup_codes', methods=['POST'])
 @login_required
-@csrf.exempt
 def verify_password_for_backup_codes():
     data = request.json or {}
     password = data.get('password', '')
@@ -700,7 +697,6 @@ def verify_password_for_backup_codes():
 
 @app.route('/api/enable_2fa_setup', methods=['POST'])
 @login_required
-@csrf.exempt
 def enable_2fa_setup():
     session['setup_2fa'] = True
     return jsonify({'success': True})
@@ -755,7 +751,6 @@ def logout():
 # API Routes
 @app.route('/api/projects')
 @login_required
-@csrf.exempt
 def get_projects():
     # Ensure database is migrated before querying
     ensure_user_db_migrated(session['user_id'])
@@ -786,7 +781,6 @@ def get_projects():
 
 @app.route('/api/projects', methods=['POST'])
 @login_required
-@csrf.exempt
 def create_project():
     data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
@@ -823,7 +817,6 @@ def create_project():
 
 @app.route('/api/projects/<int:project_id>', methods=['PUT'])
 @login_required
-@csrf.exempt
 def update_project(project_id):
     data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
@@ -854,7 +847,6 @@ def update_project(project_id):
 
 @app.route('/api/projects/<int:project_id>/archive', methods=['POST'])
 @login_required
-@csrf.exempt
 def archive_project(project_id):
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
@@ -866,7 +858,6 @@ def archive_project(project_id):
 
 @app.route('/api/time_entries')
 @login_required
-@csrf.exempt
 def get_time_entries():
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
@@ -944,7 +935,6 @@ def get_time_entries():
 
 @app.route('/api/projects/<int:project_id>/unarchive', methods=['POST'])
 @login_required
-@csrf.exempt
 def unarchive_project(project_id):
     db_path = get_user_db_path(session['user_id'])
     conn = sqlite3.connect(db_path)
@@ -956,7 +946,6 @@ def unarchive_project(project_id):
 
 @app.route('/api/time_entries', methods=['POST'])
 @login_required
-@csrf.exempt
 def create_time_entry():
     data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
@@ -1010,7 +999,6 @@ def create_time_entry():
 
 @app.route('/api/time_entries/<int:entry_id>', methods=['DELETE'])
 @login_required
-@csrf.exempt
 def delete_time_entry(entry_id):
     ensure_user_db_migrated(session['user_id'])
     
@@ -1032,7 +1020,6 @@ def delete_time_entry(entry_id):
 
 @app.route('/api/time_entries/<int:entry_id>', methods=['PUT'])
 @login_required
-@csrf.exempt
 def update_time_entry(entry_id):
     data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
@@ -1100,7 +1087,6 @@ def update_time_entry(entry_id):
 
 @app.route('/api/time_entries/<int:entry_id>/billing_status', methods=['POST'])
 @login_required
-@csrf.exempt
 def set_billing_status(entry_id):
     data = request.json or {}
     ensure_user_db_migrated(session['user_id'])
@@ -1158,7 +1144,6 @@ def set_billing_status(entry_id):
 
 @app.route('/api/time_entries/<int:entry_id>/invoice', methods=['POST'])
 @login_required
-@csrf.exempt
 def toggle_invoice_status(entry_id):
     """Legacy endpoint for backward compatibility"""
     ensure_user_db_migrated(session['user_id'])
@@ -1398,7 +1383,6 @@ def export_full_backup():
 
 @app.route('/api/export')
 @login_required
-@csrf.exempt
 def export_data():
     format_type = request.args.get('format', 'csv')
     project_id = request.args.get('project_id')
@@ -1484,7 +1468,6 @@ def export_data():
 
 @app.route('/api/import', methods=['POST'])
 @login_required
-@csrf.exempt
 def import_data():
     """Import user data from JSON backup file"""
     try:

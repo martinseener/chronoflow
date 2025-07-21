@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2025-07-21
+
+### Security
+- Fixed CSRF vulnerabilities across all API endpoints
+  - Removed @csrf.exempt decorators from 17 API endpoints
+  - Added CSRF token protection to all AJAX requests
+  - Implemented secure fetch helpers with automatic CSRF token inclusion
+  - Protected project management, time tracking, 2FA, and import/export operations
+
+### Enhanced  
+- Added centralized CSRF token management with JavaScript helper functions
+- Maintained backward compatibility with existing HTML forms
+
 ## [1.2.0] - 2025-07-21
 
 ### Security

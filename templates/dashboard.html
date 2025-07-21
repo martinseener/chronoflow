@@ -505,6 +505,33 @@ function escapeHtml(unsafe) {
          .replace(/'/g, "&#039;");
 }
 
+// CSRF token helper function
+function getCSRFToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
+// Helper function to create fetch options with CSRF token
+function createFetchOptions(method = 'GET', data = null) {
+    const options = {
+        method: method,
+        headers: {}
+    };
+    
+    // Add CSRF token for non-GET requests
+    if (method !== 'GET') {
+        options.headers['X-CSRFToken'] = getCSRFToken();
+    }
+    
+    // Add JSON content type and body if data provided
+    if (data) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(data);
+    }
+    
+    return options;
+}
+
 // Format for datetime-local input (YYYY-MM-DDTHH:MM) using local time
 function formatDateTimeLocal(date) {
     const year = date.getFullYear();
@@ -632,13 +659,7 @@ function saveTimeEntry() {
         duration_minutes: duration
     };
     
-    fetch('/api/time_entries', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-    })
+    fetch('/api/time_entries', createFetchOptions('POST', data))
     .then(response => response.json())
     .then(data => {
         bootstrap.Modal.getInstance(document.getElementById('stopTimerModal')).hide();
@@ -696,13 +717,7 @@ function saveManualEntry() {
         duration_minutes: duration
     };
     
-    fetch('/api/time_entries', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-    })
+    fetch('/api/time_entries', createFetchOptions('POST', data))
     .then(response => response.json())
     .then(data => {
         bootstrap.Modal.getInstance(document.getElementById('manualEntryModal')).hide();
@@ -776,13 +791,7 @@ function createProject() {
         return;
     }
     
-    fetch('/api/projects', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({name: name, hourly_rate: rate, billing_increment: increment})
-    })
+    fetch('/api/projects', createFetchOptions('POST', {name: name, hourly_rate: rate, billing_increment: increment}))
     .then(response => response.json())
     .then(data => {
         document.getElementById('newProjectName').value = '';
@@ -866,13 +875,7 @@ function updateProject(projectId) {
     saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
     saveButton.disabled = true;
     
-    fetch(`/api/projects/${projectId}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({name: name, hourly_rate: rate, billing_increment: increment})
-    })
+    fetch(`/api/projects/${projectId}`, createFetchOptions('PUT', {name: name, hourly_rate: rate, billing_increment: increment}))
     .then(response => response.json())
     .then(data => {
         if (data.success !== false) {
@@ -936,9 +939,7 @@ function unarchiveProject(projectId) {
         console.log('User confirmed reactivation');
         modal.hide();
         
-        fetch(`/api/projects/${projectId}/unarchive`, {
-            method: 'POST'
-        })
+        fetch(`/api/projects/${projectId}/unarchive`, createFetchOptions('POST'))
         .then(response => {
             console.log('Unarchive response status:', response.status);
             if (!response.ok) {
@@ -976,9 +977,7 @@ function archiveProject(projectId) {
         console.log('User confirmed archiving');
         modal.hide();
         
-        fetch(`/api/projects/${projectId}/archive`, {
-            method: 'POST'
-        })
+        fetch(`/api/projects/${projectId}/archive`, createFetchOptions('POST'))
         .then(response => {
             console.log('Archive response status:', response.status);
             if (!response.ok) {
@@ -1499,13 +1498,7 @@ function saveEditedEntry() {
         duration_minutes: duration
     };
     
-    fetch(`/api/time_entries/${entryId}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-    })
+    fetch(`/api/time_entries/${entryId}`, createFetchOptions('PUT', data))
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1527,9 +1520,7 @@ function deleteEntry(entryId) {
         return;
     }
     
-    fetch(`/api/time_entries/${entryId}`, {
-        method: 'DELETE'
-    })
+    fetch(`/api/time_entries/${entryId}`, createFetchOptions('DELETE'))
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1545,13 +1536,7 @@ function deleteEntry(entryId) {
 }
 
 function setBillingStatus(entryId, status) {
-    fetch(`/api/time_entries/${entryId}/billing_status`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: status })
-    })
+    fetch(`/api/time_entries/${entryId}/billing_status`, createFetchOptions('POST', { status: status }))
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1568,9 +1553,7 @@ function setBillingStatus(entryId, status) {
 
 function toggleInvoiceStatus(entryId) {
     // Legacy function - now uses new billing status API
-    fetch(`/api/time_entries/${entryId}/invoice`, {
-        method: 'POST'
-    })
+    fetch(`/api/time_entries/${entryId}/invoice`, createFetchOptions('POST'))
     .then(response => response.json())
     .then(data => {
         if (data.success) {
