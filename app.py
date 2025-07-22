@@ -28,6 +28,19 @@ app = Flask(__name__)
 
 # Load configuration
 def load_config():
+    """Load application configuration from config.json file with fallback defaults.
+    
+    Attempts to load configuration from config.json in the current directory.
+    If the file doesn't exist or can't be parsed, returns default configuration
+    with security-focused defaults.
+    
+    Returns:
+        dict: Configuration dictionary containing all application settings
+        
+    Note:
+        Default configuration includes security settings, registration controls,
+        session management, and rate limiting configurations.
+    """
     try:
         with open('config.json', 'r') as f:
             return json.load(f)
@@ -195,7 +208,23 @@ from contextlib import contextmanager
 
 @contextmanager
 def get_main_db():
-    """Context manager for main.db connections with automatic cleanup"""
+    """Context manager for main.db connections with automatic cleanup and error handling.
+    
+    Provides a database connection and cursor for the main application database
+    with automatic transaction management. Commits on success, rolls back on
+    exceptions, and always closes the connection.
+    
+    Yields:
+        tuple: (connection, cursor) for database operations
+        
+    Raises:
+        Exception: Re-raises any database exceptions after rollback
+        
+    Example:
+        with get_main_db() as (conn, cursor):
+            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            user = cursor.fetchone()
+    """
     conn = sqlite3.connect('main.db')
     try:
         cursor = conn.cursor()
@@ -209,7 +238,26 @@ def get_main_db():
 
 @contextmanager
 def get_user_db(user_id):
-    """Context manager for user database connections with automatic cleanup"""
+    """Context manager for user-specific database connections with automatic cleanup.
+    
+    Provides a database connection and cursor for a user's individual database
+    with automatic transaction management. Each user has their own SQLite database
+    file for data isolation.
+    
+    Args:
+        user_id (str): Unique identifier for the user
+        
+    Yields:
+        tuple: (connection, cursor) for database operations
+        
+    Raises:
+        Exception: Re-raises any database exceptions after rollback
+        
+    Example:
+        with get_user_db(session['user_id']) as (conn, cursor):
+            cursor.execute("SELECT * FROM projects")
+            projects = cursor.fetchall()
+    """
     db_path = get_user_db_path(user_id)
     conn = sqlite3.connect(db_path)
     try:
@@ -631,12 +679,19 @@ def check_session_timeout():
     
     # Check if session has last_activity timestamp
     if 'last_activity' not in session:
-        session['last_activity'] = datetime.now()
+        session['last_activity'] = datetime.now().isoformat()
         session.permanent = True
         return True
     
     # Check if session has expired
-    last_activity = datetime.fromisoformat(session['last_activity'])
+    try:
+        last_activity = datetime.fromisoformat(session['last_activity'])
+    except (ValueError, TypeError):
+        # Handle invalid timestamp - refresh session
+        session['last_activity'] = datetime.now().isoformat()
+        session.permanent = True
+        return True
+        
     if datetime.now() - last_activity > timedelta(hours=timeout_hours):
         session.clear()
         return False
@@ -670,6 +725,66 @@ def index():
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
 
+def validate_registration_data(email, password, confirm_password):
+    """Validate user registration form data against security requirements.
+    
+    Performs comprehensive validation of user registration inputs including
+    email format validation, password strength requirements, and password
+    confirmation matching.
+    
+    Args:
+        email (str): Email address to validate
+        password (str): Password to validate
+        confirm_password (str): Password confirmation to match against password
+        
+    Returns:
+        list: List of validation error messages, empty if all valid
+        
+    Example:
+        errors = validate_registration_data(email, password, confirm_password)
+        if errors:
+            for error in errors:
+                flash(error, 'error')
+    """
+    errors = []
+    
+    if not validate_email(email):
+        errors.append('Please enter a valid email address.')
+    
+    is_valid, message = validate_password(password)
+    if not is_valid:
+        errors.append(message)
+    
+    if password != confirm_password:
+        errors.append('Passwords do not match.')
+    
+    return errors
+
+def check_user_exists(email):
+    """Check if a user with the given email already exists"""
+    with get_main_db() as (conn, cursor):
+        cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
+        return cursor.fetchone() is not None
+
+def create_new_user(email, password_hash):
+    """Create a new user in the database and return user_id"""
+    user_id = str(uuid.uuid4())
+    totp_secret = pyotp.random_base32()
+    
+    with get_main_db() as (conn, cursor):
+        cursor.execute('''
+            INSERT INTO users (id, email, password_hash, totp_secret)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, email, password_hash, totp_secret))
+    
+    return user_id
+
+def setup_new_user_session(user_id, email):
+    """Setup session for newly registered user"""
+    session['user_id'] = user_id
+    session['email'] = email
+    session['setup_2fa'] = True
+
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit(config['registration']['rate_limit'])
 def register():
@@ -681,74 +796,69 @@ def register():
                              message=config['registration']['message_when_disabled'])
     
     if request.method == 'POST':
-        email = sanitize_string(request.form.get('email', ''), 254)
+        email = sanitize_string(request.form.get('email', ''), MAX_EMAIL_LENGTH)
         password = request.form.get('password', '')
         confirm_password = request.form.get('confirm_password', '')
         
-        # Validate email format
-        if not validate_email(email):
-            flash('Please enter a valid email address.', 'error')
+        # Validate registration data
+        validation_errors = validate_registration_data(email, password, confirm_password)
+        if validation_errors:
+            for error in validation_errors:
+                flash(error, 'error')
             return render_template('register.html')
         
-        # Validate password strength
-        is_valid, message = validate_password(password)
-        if not is_valid:
-            flash(message, 'error')
-            return render_template('register.html')
-        
-        # Check if passwords match
-        if password != confirm_password:
-            flash('Passwords do not match.', 'error')
-            return render_template('register.html')
-        
-        # Simulate processing time to prevent timing attacks
+        # Implement timing attack protection
         start_time = time.time()
         
         # Always hash the password to maintain consistent timing
         password_hash = generate_password_hash(password)
         
-        with get_main_db() as (conn, cursor):
-            # Check if user already exists
-            cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
-            existing_user = cursor.fetchone()
-            
-            if existing_user:
-                # Ensure consistent timing by adding delay if needed
-                elapsed = time.time() - start_time
-                min_time = config['security']['min_processing_time']
-                if elapsed < min_time:
-                    time.sleep(min_time - elapsed)
-                flash('Registration request processed. If the email is valid, you will receive further instructions.')
-                return render_template('register.html')
+        # Check if user already exists
+        if check_user_exists(email):
+            apply_timing_protection(start_time)
+            flash('Registration request processed. If the email is valid, you will receive further instructions.')
+            return render_template('register.html')
         
-            # Create new user with UUID
-            user_id = str(uuid.uuid4())
-            totp_secret = pyotp.random_base32()
-            
-            cursor.execute('''
-                INSERT INTO users (id, email, password_hash, totp_secret)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, email, password_hash, totp_secret))
+        # Create new user
+        user_id = create_new_user(email, password_hash)
         
-        # Ensure consistent timing
-        elapsed = time.time() - start_time
-        min_time = config['security']['min_processing_time']
-        if elapsed < min_time:
-            time.sleep(min_time - elapsed)
+        # Apply timing protection
+        apply_timing_protection(start_time)
         
-        # Initialize user database
+        # Initialize user database and setup session
         init_user_db(user_id)
-        
-        session['user_id'] = user_id
-        session['email'] = email
-        session['setup_2fa'] = True
+        setup_new_user_session(user_id, email)
         
         return redirect(url_for('setup_2fa'))
     
     return render_template('register.html')
 
 def authenticate_user_credentials(email, password):
-    """Authenticate user credentials and return user data if valid"""
+    """Authenticate user credentials against the database with timing attack protection.
+    
+    Performs secure user authentication by checking the provided email and password
+    against stored hashed credentials. Implements timing attack protection by
+    ensuring consistent execution time regardless of whether the user exists.
+    
+    Args:
+        email (str): User's email address
+        password (str): User's plain-text password
+        
+    Returns:
+        tuple or None: User data tuple (id, password_hash, totp_secret, totp_enabled, backup_codes)
+                      if authentication successful, None otherwise
+                      
+    Security:
+        - Uses secure password hashing comparison
+        - Implements dummy hash check for non-existent users
+        - Consistent timing to prevent user enumeration attacks
+        
+    Example:
+        user = authenticate_user_credentials(email, password)
+        if user:
+            # User authenticated successfully
+            user_id, _, totp_secret, totp_enabled, _ = user
+    """
     with get_main_db() as (conn, cursor):
         cursor.execute('SELECT id, password_hash, totp_secret, totp_enabled, backup_codes FROM users WHERE email = ?', (email,))
         user = cursor.fetchone()
@@ -786,7 +896,7 @@ def complete_login_session(user, email, setup_2fa=False):
     """Complete login by setting up session"""
     session['user_id'] = user[0]
     session['email'] = email
-    session['login_time'] = datetime.now().isoformat()
+    session['last_activity'] = datetime.now().isoformat()
     session.permanent = True
     
     if setup_2fa:
@@ -1081,28 +1191,25 @@ def get_projects():
     # Ensure database is migrated before querying
     ensure_user_db_migrated(session['user_id'])
     
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     # Check if we want archived projects too
     include_archived = request.args.get('include_archived', 'false').lower() == 'true'
     
-    if include_archived:
-        cursor.execute('SELECT id, name, hourly_rate, billing_increment, archived FROM projects ORDER BY archived, name')
-    else:
-        cursor.execute('SELECT id, name, hourly_rate, billing_increment, archived FROM projects WHERE archived = 0 ORDER BY name')
+    with get_user_db(session['user_id']) as (conn, cursor):
+        if include_archived:
+            cursor.execute('SELECT id, name, hourly_rate, billing_increment, archived FROM projects ORDER BY archived, name')
+        else:
+            cursor.execute('SELECT id, name, hourly_rate, billing_increment, archived FROM projects WHERE archived = 0 ORDER BY name')
+        
+        projects = []
+        for row in cursor.fetchall():
+            projects.append({
+                'id': row[0], 
+                'name': row[1], 
+                'hourly_rate': row[2],
+                'billing_increment': row[3] if len(row) > 3 and row[3] else 'minute',
+                'archived': row[4] if len(row) > 4 else 0
+            })
     
-    projects = []
-    for row in cursor.fetchall():
-        projects.append({
-            'id': row[0], 
-            'name': row[1], 
-            'hourly_rate': row[2],
-            'billing_increment': row[3] if len(row) > 3 and row[3] else 'minute',
-            'archived': row[4] if len(row) > 4 else 0
-        })
-    conn.close()
     return jsonify(projects)
 
 @app.route('/api/projects', methods=['POST'])
@@ -1123,17 +1230,13 @@ def create_project():
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     billing_increment = sanitized_data.get('billing_increment') or 'minute'
     
-    cursor.execute('INSERT INTO projects (name, hourly_rate, billing_increment) VALUES (?, ?, ?)', 
-                  (sanitized_data['name'], sanitized_data['hourly_rate'], billing_increment))
-    project_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    with get_user_db(session['user_id']) as (conn, cursor):
+        cursor.execute('INSERT INTO projects (name, hourly_rate, billing_increment) VALUES (?, ?, ?)', 
+                      (sanitized_data['name'], sanitized_data['hourly_rate'], billing_increment))
+        project_id = cursor.lastrowid
+    
     return jsonify({
         'id': project_id, 
         'name': sanitized_data['name'], 
@@ -1159,36 +1262,24 @@ def update_project(project_id):
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     billing_increment = sanitized_data.get('billing_increment') or 'minute'
     
-    cursor.execute('UPDATE projects SET name = ?, hourly_rate = ?, billing_increment = ? WHERE id = ?', 
-                  (sanitized_data['name'], sanitized_data['hourly_rate'], billing_increment, project_id))
-    conn.commit()
-    conn.close()
+    with get_user_db(session['user_id']) as (conn, cursor):
+        cursor.execute('UPDATE projects SET name = ?, hourly_rate = ?, billing_increment = ? WHERE id = ?', 
+                      (sanitized_data['name'], sanitized_data['hourly_rate'], billing_increment, project_id))
+    
     return jsonify({'success': True})
 
 @app.route('/api/projects/<int:project_id>/archive', methods=['POST'])
 @login_required
 def archive_project(project_id):
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('UPDATE projects SET archived = 1 WHERE id = ?', (project_id,))
-    conn.commit()
-    conn.close()
+    with get_user_db(session['user_id']) as (conn, cursor):
+        cursor.execute('UPDATE projects SET archived = 1 WHERE id = ?', (project_id,))
     return jsonify({'success': True})
 
 @app.route('/api/time_entries')
 @login_required
 def get_time_entries():
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     # Get filters
     project_id = request.args.get('project_id')
     date_from = request.args.get('date_from')
@@ -1240,34 +1331,30 @@ def get_time_entries():
         query += ' LIMIT ?'
         params.append(limit)
     
-    cursor.execute(query, params)
-    entries = []
-    for row in cursor.fetchall():
-        entries.append({
-            'id': row[0],
-            'project_id': row[1],
-            'project_name': row[2],
-            'description': row[3],
-            'start_time': row[4],
-            'end_time': row[5],
-            'duration_minutes': row[6],
-            'earnings': row[7],
-            'invoiced': row[8] if len(row) > 8 else 0,
-            'billing_status': row[9] if len(row) > 9 else ('invoiced' if (len(row) > 8 and row[8]) else 'pending')
-        })
+    with get_user_db(session['user_id']) as (conn, cursor):
+        cursor.execute(query, params)
+        entries = []
+        for row in cursor.fetchall():
+            entries.append({
+                'id': row[0],
+                'project_id': row[1],
+                'project_name': row[2],
+                'description': row[3],
+                'start_time': row[4],
+                'end_time': row[5],
+                'duration_minutes': row[6],
+                'earnings': row[7],
+                'invoiced': row[8] if len(row) > 8 else 0,
+                'billing_status': row[9] if len(row) > 9 else ('invoiced' if (len(row) > 8 and row[8]) else 'pending')
+            })
     
-    conn.close()
     return jsonify(entries)
 
 @app.route('/api/projects/<int:project_id>/unarchive', methods=['POST'])
 @login_required
 def unarchive_project(project_id):
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('UPDATE projects SET archived = 0 WHERE id = ?', (project_id,))
-    conn.commit()
-    conn.close()
+    with get_user_db(session['user_id']) as (conn, cursor):
+        cursor.execute('UPDATE projects SET archived = 0 WHERE id = ?', (project_id,))
     return jsonify({'success': True})
 
 @app.route('/api/time_entries', methods=['POST'])
@@ -1707,31 +1794,8 @@ def export_full_backup():
     
     return json.dumps(backup_data, indent=2, default=str)
 
-@app.route('/api/export')
-@login_required
-@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('export_requests', '20 per hour'))
-def export_data():
-    format_type = request.args.get('format', 'csv')
-    project_id = request.args.get('project_id')
-    date_from = request.args.get('date_from')
-    date_to = request.args.get('date_to')
-    billing_statuses = request.args.get('billing_statuses')
-    customer_export = request.args.get('customer_export', 'false').lower() == 'true'
-    full_backup = request.args.get('full_backup', 'false').lower() == 'true'
-    
-    # Handle full backup export for import/export feature
-    if full_backup:
-        content = export_full_backup()
-        response = make_response(content)
-        response.headers['Content-Type'] = 'application/json'
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        response.headers['Content-Disposition'] = f'attachment; filename=chronoflow_backup_{timestamp}.json'
-        return response
-    
-    db_path = get_user_db_path(session['user_id'])
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
+def build_export_query(project_id, date_from, date_to, billing_statuses):
+    """Build export query with filters and return query string and parameters"""
     query = '''
         SELECT te.start_time, te.end_time, te.duration_minutes, 
                te.description, p.name as project_name, te.earnings,
@@ -1763,35 +1827,76 @@ def export_data():
             params.extend(status_list)
     
     query += ' ORDER BY te.start_time'
+    return query, params
+
+def fetch_export_data(user_id, project_id, date_from, date_to, billing_statuses):
+    """Fetch filtered time entries data for export"""
+    query, params = build_export_query(project_id, date_from, date_to, billing_statuses)
     
-    cursor.execute(query, params)
+    with get_user_db(user_id) as (conn, cursor):
+        cursor.execute(query, params)
+        # Convert to list of dictionaries
+        columns = [desc[0] for desc in cursor.description]
+        data = []
+        for row in cursor.fetchall():
+            data.append(dict(zip(columns, row)))
     
-    # Convert to list of dictionaries
-    columns = [desc[0] for desc in cursor.description]
-    data = []
-    for row in cursor.fetchall():
-        data.append(dict(zip(columns, row)))
-    
-    conn.close()
-    
-    # Generate filename
+    return data
+
+def handle_csv_export(data, customer_export):
+    """Handle CSV export format"""
     timestamp = datetime.now().strftime("%Y%m%d")
+    content = export_customer_to_csv(data) if customer_export else export_to_csv(data)
+    response = make_response(content)
+    response.headers['Content-Type'] = 'text/csv'
+    filename_prefix = 'chronoflow_customer_export' if customer_export else 'chronoflow_export'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename_prefix}_{timestamp}.csv'
+    return response
+
+def handle_json_export(data, customer_export):
+    """Handle JSON export format"""
+    timestamp = datetime.now().strftime("%Y%m%d")
+    content = export_to_json(data) if not customer_export else export_customer_to_json(data)
+    response = make_response(content)
+    response.headers['Content-Type'] = 'application/json'
+    filename_prefix = 'chronoflow_customer_export' if customer_export else 'chronoflow_export'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename_prefix}_{timestamp}.json'
+    return response
+
+def handle_full_backup_export():
+    """Handle full backup export for import/export feature"""
+    content = export_full_backup()
+    response = make_response(content)
+    response.headers['Content-Type'] = 'application/json'
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    response.headers['Content-Disposition'] = f'attachment; filename=chronoflow_backup_{timestamp}.json'
+    return response
+
+@app.route('/api/export')
+@login_required
+@enhanced_rate_limit(lambda: config.get('rate_limiting', {}).get('export_requests', '20 per hour'))
+def export_data():
+    # Parse request parameters
+    format_type = request.args.get('format', 'csv')
+    project_id = request.args.get('project_id')
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    billing_statuses = request.args.get('billing_statuses')
+    customer_export = request.args.get('customer_export', 'false').lower() == 'true'
+    full_backup = request.args.get('full_backup', 'false').lower() == 'true'
     
+    # Handle full backup export
+    if full_backup:
+        return handle_full_backup_export()
+    
+    # Fetch export data based on filters
+    data = fetch_export_data(session['user_id'], project_id, date_from, date_to, billing_statuses)
+    
+    # Handle different export formats
     if format_type == 'json':
-        content = export_to_json(data) if not customer_export else export_customer_to_json(data)
-        response = make_response(content)
-        response.headers['Content-Type'] = 'application/json'
-        filename_prefix = 'chronoflow_customer_export' if customer_export else 'chronoflow_export'
-        response.headers['Content-Disposition'] = f'attachment; filename={filename_prefix}_{timestamp}.json'
-        return response
-    
+        return handle_json_export(data, customer_export)
     else:  # CSV (default)
-        content = export_customer_to_csv(data) if customer_export else export_to_csv(data)
-        response = make_response(content)
-        response.headers['Content-Type'] = 'text/csv'
-        filename_prefix = 'chronoflow_customer_export' if customer_export else 'chronoflow_export'
-        response.headers['Content-Disposition'] = f'attachment; filename={filename_prefix}_{timestamp}.csv'
-        return response
+        return handle_csv_export(data, customer_export)
 
 def validate_and_parse_import_file(file):
     """Validate and parse the import file, return data or error"""
